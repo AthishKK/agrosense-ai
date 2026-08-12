@@ -1,0 +1,21 @@
+{
+    "best_model": "Random Forest",
+    "accuracy": 100.0,
+    "all_results": {
+        "Random Forest": 100.0,
+        "XGBoost": 100.0,
+        "Gradient Boosting": 95.0,
+        "Logistic Regression": 100.0
+    },
+    "features": [
+        "Temparature",
+        "Humidity",
+        "Moisture",
+        "soil_encoded",
+        "crop_encoded",
+        "Nitrogen",
+        "Potassium",
+        "Phosphorous"
+    ],
+    "total_classes": 7
+}

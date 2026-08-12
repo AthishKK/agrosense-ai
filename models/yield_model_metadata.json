@@ -1,0 +1,37 @@
+{
+    "best_model": "Random Forest",
+    "r2_score": 0.9832,
+    "mae": 0.4229,
+    "rmse": 1.1022,
+    "all_results": {
+        "Random Forest": {
+            "MAE": 0.4229,
+            "RMSE": 1.1022,
+            "R2": 0.9832
+        },
+        "XGBoost": {
+            "MAE": 0.841,
+            "RMSE": 1.5401,
+            "R2": 0.9673
+        },
+        "Gradient Boosting": {
+            "MAE": 2.2745,
+            "RMSE": 3.6744,
+            "R2": 0.8137
+        },
+        "Linear Regression": {
+            "MAE": 6.2178,
+            "RMSE": 8.1661,
+            "R2": 0.0799
+        }
+    },
+    "features": [
+        "crop_encoded",
+        "country_encoded",
+        "year",
+        "rainfall_mm",
+        "pesticides_tonnes",
+        "avg_temp"
+    ],
+    "target": "yield_tonnes_per_ha"
+}

@@ -1,0 +1,1909 @@
+# ================================================
+# AgroSense AI — Main Streamlit Dashboard
+# ================================================
+
+import sys
+sys.stdout.reconfigure(encoding='utf-8')
+
+import streamlit as st
+import pandas as pd
+import numpy as np
+import pickle
+import json
+import plotly.graph_objects as go
+import plotly.express as px
+from datetime import datetime
+# ── Patch: block numba/llvmlite DLL crash on Windows Python 3.14 ──
+class _Stub:
+    def __getattr__(self, name): return _Stub()
+    def __call__(self, *a, **kw): return _Stub()
+    def __repr__(self): return '_Stub()'
+
+_nb = _Stub()
+for _mod in [
+    'numba', 'numba.core', 'numba.core.serialize', 'numba.core.decorators',
+    'numba.core.types', 'numba.core.typing', 'numba.core.utils',
+    'numba.core.ir', 'numba.core.config', 'numba.core.ir_utils',
+    'numba.core.registry', 'numba.core.extending', 'numba.core.lowering',
+    'numba.core.environment', 'numba.core.pythonapi', 'numba.core.cgutils',
+    'numba.core.imputils', 'numba.core.datamodel', 'numba.core.datamodel.models',
+    'numba.typed', 'numba.stencils', 'numba.stencils.stencil',
+    'numba.misc', 'numba.misc.firstlinefinder', 'numba.misc.coverage_support',
+    'numba._helperlib', 'numba._dynfunc',
+    'llvmlite', 'llvmlite.ir', 'llvmlite.binding',
+]:
+    sys.modules.setdefault(_mod, _nb)
+# ── End patch ──
+import shap
+import matplotlib.pyplot as plt
+import matplotlib
+matplotlib.use('Agg')
+import requests
+import urllib.parse
+import datetime
+
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), 'utils'))
+from ai_advice import configure_groq, get_farming_advice, get_soil_advice
+from rag_chatbot import initialize_rag, answer_question
+
+# ─────────────────────────────────────────────────
+# PAGE CONFIG
+# ─────────────────────────────────────────────────
+
+st.set_page_config(
+    page_title="AgroSense AI",
+    page_icon="🌾",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# ─────────────────────────────────────────────────
+# CUSTOM CSS
+# ─────────────────────────────────────────────────
+
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap');
+
+html, body, [class*="css"] {
+    font-family: 'Inter', sans-serif;
+    background-color: #f0fdf4 !important;
+    color: #1f2937 !important;
+}
+.stApp {
+    background: linear-gradient(160deg, #f0fdf4 0%, #e8f5e9 50%, #f9fafb 100%) !important;
+    min-height: 100vh;
+}
+.main .block-container {
+    padding-top: 1rem;
+    padding-bottom: 2rem;
+    max-width: 1400px;
+    background: transparent !important;
+}
+
+@keyframes gradientShift {
+    0%   { background-position: 0% 50%; }
+    50%  { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
+.main-header {
+    background: linear-gradient(135deg, #1b5e20, #2e7d32, #1b5e20, #ffd700, #2e7d32);
+    background-size: 300% 300%;
+    animation: gradientShift 6s ease infinite;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    font-size: 3.2rem;
+    font-weight: 800;
+    text-align: center;
+    padding: 0.5rem 0 0.2rem 0;
+    letter-spacing: -1px;
+}
+.sub-header {
+    font-size: 1rem;
+    color: #6b7280;
+    text-align: center;
+    margin-bottom: 0.5rem;
+    font-weight: 400;
+}
+.header-divider {
+    height: 3px;
+    background: linear-gradient(90deg, transparent, #1b5e20, #ffd700, #1b5e20, transparent);
+    border: none;
+    margin: 0.5rem auto 1.5rem auto;
+    width: 60%;
+    border-radius: 2px;
+}
+
+[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #0a2e0f 0%, #1b5e20 60%, #0d3b14 100%) !important;
+    border-right: 1px solid #2e7d32;
+}
+[data-testid="stSidebar"] * { color: #e8f5e9 !important; }
+[data-testid="stSidebar"] hr { border-color: #2e7d32 !important; }
+.sidebar-logo-box {
+    background: rgba(255,215,0,0.12);
+    border: 1px solid rgba(255,215,0,0.3);
+    border-radius: 16px;
+    padding: 1rem;
+    text-align: center;
+    margin-bottom: 1rem;
+}
+.sidebar-logo-box .logo-title { font-size: 1.3rem; font-weight: 800; color: #ffd700 !important; }
+.sidebar-logo-box .logo-sub   { font-size: 0.72rem; color: #a5d6a7 !important; }
+
+.section-title {
+    font-size: 1.35rem;
+    font-weight: 700;
+    color: #1b5e20;
+    border-left: 4px solid #ffd700;
+    padding-left: 0.75rem;
+    margin: 1.2rem 0 0.8rem 0;
+}
+.glass-card {
+    background: rgba(255,255,255,0.72);
+    backdrop-filter: blur(14px);
+    border: 1px solid rgba(27,94,32,0.18);
+    border-radius: 18px;
+    padding: 1.4rem 1.6rem;
+    margin-bottom: 1rem;
+    box-shadow: 0 8px 32px rgba(27,94,32,0.10);
+}
+.input-panel-header {
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: #1b5e20;
+    background: linear-gradient(90deg, #e8f5e9, transparent);
+    border-left: 3px solid #ffd700;
+    padding: 0.4rem 0.8rem;
+    border-radius: 0 8px 8px 0;
+    margin-bottom: 0.7rem;
+}
+.stButton > button {
+    background: linear-gradient(135deg, #1b5e20 0%, #2e7d32 50%, #388e3c 100%) !important;
+    color: #ffd700 !important;
+    border: 2px solid rgba(255,215,0,0.4) !important;
+    border-radius: 12px !important;
+    padding: 0.75rem 2.5rem !important;
+    font-size: 1.05rem !important;
+    font-weight: 700 !important;
+    width: 100% !important;
+    transition: all 0.25s ease !important;
+    box-shadow: 0 4px 15px rgba(27,94,32,0.35) !important;
+}
+.stButton > button:hover {
+    background: linear-gradient(135deg, #ffd700 0%, #ffca28 100%) !important;
+    color: #1b5e20 !important;
+    transform: translateY(-2px) !important;
+}
+
+@keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(24px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+.results-wrapper { animation: fadeInUp 0.55s ease both; }
+
+.results-banner {
+    background: linear-gradient(135deg, #1b5e20, #2e7d32);
+    border-radius: 16px;
+    padding: 1.2rem 2rem;
+    margin-bottom: 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    box-shadow: 0 4px 20px rgba(27,94,32,0.3);
+}
+.results-banner-title { font-size: 1.6rem; font-weight: 800; color: #ffd700; margin: 0; }
+.results-banner-sub   { font-size: 0.88rem; color: #a5d6a7; margin: 0; }
+
+.crop-h-card {
+    background: rgba(255,255,255,0.88);
+    backdrop-filter: blur(12px);
+    border-radius: 20px;
+    padding: 1.2rem 0.8rem;
+    text-align: center;
+    border: 2px solid rgba(27,94,32,0.12);
+    box-shadow: 0 4px 18px rgba(27,94,32,0.09);
+    transition: transform 0.2s, box-shadow 0.2s;
+    height: 100%;
+}
+.crop-h-card:hover { transform: translateY(-4px); box-shadow: 0 10px 30px rgba(27,94,32,0.18); }
+.crop-h-card.top-card {
+    border: 2.5px solid #ffd700;
+    background: linear-gradient(160deg, rgba(255,215,0,0.10), rgba(255,255,255,0.95));
+    box-shadow: 0 6px 28px rgba(255,215,0,0.25);
+}
+.crop-h-emoji  { font-size: 2.6rem; margin-bottom: 0.3rem; }
+.crop-h-name   { font-size: 1rem; font-weight: 800; color: #1b5e20; margin: 0.2rem 0; }
+.crop-h-rank   { font-size: 1.4rem; margin-bottom: 0.2rem; }
+.crop-h-conf   { font-size: 0.78rem; color: #6b7280; margin-bottom: 0.5rem; }
+.crop-h-bar-bg { background: #e8f5e9; border-radius: 8px; height: 8px; margin: 0.4rem 0.2rem; overflow: hidden; }
+.crop-h-bar-fill { height: 8px; border-radius: 8px; background: linear-gradient(90deg, #1b5e20, #ffd700); }
+.crop-h-card.top-card .crop-h-bar-fill { background: linear-gradient(90deg, #ffd700, #ff8f00); }
+
+.soil-grade-badge {
+    width: 80px; height: 80px; border-radius: 50%;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    font-size: 2rem; font-weight: 900; margin: 0 auto 0.5rem auto;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+}
+.grade-A { background: linear-gradient(135deg,#1b5e20,#2e7d32); color:#ffd700; }
+.grade-B { background: linear-gradient(135deg,#2e7d32,#66bb6a); color:#fff; }
+.grade-C { background: linear-gradient(135deg,#f57c00,#ffa726); color:#fff; }
+.grade-D { background: linear-gradient(135deg,#c62828,#ef5350); color:#fff; }
+
+.fert-card {
+    background: linear-gradient(135deg, #1b5e20, #2e7d32);
+    border-radius: 18px; padding: 1.5rem; text-align: center;
+    box-shadow: 0 6px 24px rgba(27,94,32,0.3); margin-bottom: 0.8rem;
+}
+.fert-card .fert-label { font-size: 0.75rem; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: #a5d6a7; margin-bottom: 0.4rem; }
+.fert-card .fert-name  { font-size: 1.6rem; font-weight: 800; color: #ffd700; }
+.fert-tip {
+    background: rgba(255,255,255,0.75); backdrop-filter: blur(8px);
+    border-radius: 10px; padding: 0.7rem 1rem; font-size: 0.83rem;
+    color: #374151; border-left: 3px solid #ffd700;
+}
+.shap-explain-box {
+    background: rgba(255,255,255,0.8); border-radius: 12px;
+    padding: 0.9rem 1.1rem; margin: 0.4rem 0; border-left: 4px solid #1b5e20;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06); font-size: 0.88rem; color: #374151;
+}
+.shap-explain-box.positive { border-left-color: #2e7d32; background: linear-gradient(90deg, rgba(46,125,50,0.07), rgba(255,255,255,0.85)); }
+.shap-explain-box.negative { border-left-color: #c62828; background: linear-gradient(90deg, rgba(198,40,40,0.07), rgba(255,255,255,0.85)); }
+
+.fancy-divider {
+    height: 2px;
+    background: linear-gradient(90deg, transparent, #1b5e20 30%, #ffd700 50%, #1b5e20 70%, transparent);
+    border: none; margin: 1.5rem 0; border-radius: 2px;
+}
+
+/* ── NEW FEATURE CARDS ── */
+.feature-card {
+    background: rgba(255,255,255,0.88);
+    border-radius: 18px; padding: 1.4rem;
+    border: 1.5px solid rgba(27,94,32,0.15);
+    box-shadow: 0 6px 24px rgba(27,94,32,0.10);
+    margin-bottom: 1rem;
+}
+.feature-card-title {
+    font-size: 1.1rem; font-weight: 800; color: #1b5e20;
+    margin-bottom: 0.8rem; display: flex; align-items: center; gap: 0.5rem;
+}
+.soil-fix-step {
+    background: linear-gradient(135deg, rgba(27,94,32,0.06), rgba(255,215,0,0.06));
+    border-radius: 12px; padding: 0.8rem 1rem; margin: 0.5rem 0;
+    border-left: 4px solid #2e7d32; font-size: 0.88rem;
+}
+.rotation-card {
+    background: rgba(255,255,255,0.9); border-radius: 14px;
+    padding: 1rem; text-align: center;
+    border: 2px solid rgba(27,94,32,0.12);
+    box-shadow: 0 4px 14px rgba(27,94,32,0.08);
+}
+.rotation-season { font-size: 0.72rem; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: #6b7280; }
+.rotation-crop   { font-size: 1.1rem; font-weight: 800; color: #1b5e20; margin: 0.3rem 0; }
+.rotation-effect { font-size: 0.75rem; padding: 0.2rem 0.6rem; border-radius: 20px; display: inline-block; }
+.effect-good { background: #e8f5e9; color: #1b5e20; }
+.effect-bad  { background: #ffebee; color: #c62828; }
+
+.calendar-month {
+    background: rgba(255,255,255,0.9); border-radius: 10px;
+    padding: 0.6rem 0.4rem; text-align: center;
+    border: 1.5px solid rgba(27,94,32,0.12);
+    box-shadow: 0 2px 8px rgba(27,94,32,0.06);
+    transition: transform 0.15s;
+}
+.calendar-month:hover { transform: translateY(-2px); }
+.calendar-month.active {
+    background: linear-gradient(135deg, #1b5e20, #2e7d32);
+    border-color: #ffd700;
+}
+.cal-month-name { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+.cal-activity   { font-size: 0.65rem; margin-top: 0.2rem; }
+.cal-emoji      { font-size: 1.1rem; }
+
+.quality-bar-bg {
+    background: #e8f5e9; border-radius: 8px; height: 12px;
+    overflow: hidden; margin: 0.3rem 0;
+}
+.quality-bar-fill {
+    height: 12px; border-radius: 8px;
+    background: linear-gradient(90deg, #1b5e20, #ffd700);
+    transition: width 0.8s ease;
+}
+.quality-score-badge {
+    display: inline-block; padding: 0.3rem 1rem;
+    border-radius: 20px; font-weight: 800; font-size: 1.1rem;
+}
+
+/* ── DOWNLOAD BUTTON FIX ── */
+[data-testid="stDownloadButton"] button {
+    background: linear-gradient(135deg, #ffd700, #ffca28) !important;
+    color: #1b5e20 !important;
+    border: 2px solid #1b5e20 !important;
+    border-radius: 12px !important;
+    font-weight: 800 !important;
+    font-size: 1rem !important;
+    box-shadow: 0 4px 16px rgba(255,215,0,0.4) !important;
+}
+[data-testid="stDownloadButton"] button:hover {
+    background: linear-gradient(135deg, #1b5e20, #2e7d32) !important;
+    color: #ffd700 !important;
+}
+
+/* ── CHATBOT ── */
+.chat-container { max-height: 520px; overflow-y: auto; padding: 1rem 0.5rem; display: flex; flex-direction: column; gap: 1rem; scroll-behavior: smooth; }
+.chat-row { display: flex; align-items: flex-end; gap: 0.6rem; animation: fadeInUp 0.3s ease both; }
+.chat-row.user-row { flex-direction: row-reverse; }
+.chat-avatar { width: 38px; height: 38px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; flex-shrink: 0; box-shadow: 0 2px 8px rgba(0,0,0,0.12); }
+.avatar-bot  { background: linear-gradient(135deg,#1b5e20,#2e7d32); }
+.avatar-user { background: linear-gradient(135deg,#37474f,#546e7a); }
+.chat-bubble { max-width: 72%; padding: 0.85rem 1.1rem; border-radius: 18px; font-size: 0.92rem; line-height: 1.65; box-shadow: 0 3px 12px rgba(0,0,0,0.09); word-wrap: break-word; }
+.bubble-bot  { background: linear-gradient(135deg,#e8f5e9,#f1f8e9); border: 1.5px solid #a5d6a7; border-bottom-left-radius: 4px; color: #1a2e1a; }
+.bubble-user { background: linear-gradient(135deg,#1b5e20,#2e7d32); border: 1.5px solid #388e3c; border-bottom-right-radius: 4px; color: #ffffff; }
+.chat-ts { font-size: 0.68rem; color: #9ca3af; margin-top: 0.25rem; text-align: right; padding: 0 0.3rem; }
+.chat-row.bot-row .chat-ts { text-align: left; }
+@keyframes typingBounce {
+    0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+    40%            { transform: translateY(-6px); opacity: 1; }
+}
+.typing-bubble { background: linear-gradient(135deg,#e8f5e9,#f1f8e9); border: 1.5px solid #a5d6a7; border-radius: 18px; border-bottom-left-radius: 4px; padding: 0.75rem 1.1rem; display: inline-flex; gap: 5px; align-items: center; }
+.typing-dot { width: 8px; height: 8px; background: #2e7d32; border-radius: 50%; animation: typingBounce 1.2s infinite; }
+.typing-dot:nth-child(2) { animation-delay: 0.2s; }
+.typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+/* ── SELECTBOX FIX ── */
+div[data-baseweb="select"] span { color: #1b5e20 !important; }
+div[data-baseweb="select"] div  { color: #1b5e20 !important; background-color: #ffffff !important; }
+div[data-baseweb="popover"] li  { color: #1b5e20 !important; background-color: #ffffff !important; }
+div[data-baseweb="popover"] li:hover { background-color: #e8f5e9 !important; }
+.stSelectbox label { color: #1b5e20 !important; }
+
+[data-testid="stExpander"] { border: 1.5px solid rgba(27,94,32,0.18) !important; border-radius: 14px !important; margin-bottom: 0.5rem !important; background: rgba(255,255,255,0.75) !important; }
+[data-testid="stExpander"]:hover { border-color: #ffd700 !important; }
+[data-testid="stMetric"] { background: rgba(255,255,255,0.8); border-radius: 14px; padding: 1rem 1.2rem; border: 1px solid rgba(27,94,32,0.15); }
+[data-testid="stMetricValue"] { color: #1b5e20 !important; font-weight: 800 !important; }
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-thumb { background: #2e7d32; border-radius: 3px; }
+.stMarkdown, .stText, label, p, span { color: #1f2937; }
+.stSelectbox > div > div, .stTextInput > div > div > input { background: #ffffff !important; color: #1f2937 !important; }
+
+[data-testid="stExpander"] summary { color: #1b5e20 !important; }
+[data-testid="stExpander"] summary span { color: #1b5e20 !important; }
+[data-testid="stExpander"] summary p { color: #1b5e20 !important; }
+[data-testid="stExpander"] details summary { color: #1b5e20 !important; }
+summary:hover span { color: #1b5e20 !important; }
+
+input[type="number"] {
+    background-color: #f0fdf4 !important;
+    color: #1b5e20 !important;
+    border: 1.5px solid #a5d6a7 !important;
+    border-radius: 8px !important;
+    font-weight: 600 !important;
+}
+input[type="number"]:focus {
+    border-color: #1b5e20 !important;
+    box-shadow: 0 0 0 2px rgba(27,94,32,0.2) !important;
+    outline: none !important;
+}
+.stNumberInput > div > div > input {
+    background-color: #f0fdf4 !important;
+    color: #1b5e20 !important;
+    border: 1.5px solid #a5d6a7 !important;
+}
+.stNumberInput button {
+    background-color: #e8f5e9 !important;
+    color: #1b5e20 !important;
+    border: 1px solid #a5d6a7 !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+
+# ─────────────────────────────────────────────────
+# LOAD MODELS
+# ─────────────────────────────────────────────────
+
+@st.cache_resource
+def load_models():
+    models = {}
+    models['crop_model']        = pickle.load(open('models/crop_model.pkl', 'rb'))
+    models['crop_encoder']      = pickle.load(open('models/crop_encoder.pkl', 'rb'))
+    models['fertilizer_model']  = pickle.load(open('models/fertilizer_model.pkl', 'rb'))
+    models['fertilizer_encoder']= pickle.load(open('models/fertilizer_encoder.pkl', 'rb'))
+    models['soil_encoder']      = pickle.load(open('models/soil_encoder.pkl', 'rb'))
+    models['crop_fert_encoder'] = pickle.load(open('models/crop_fert_encoder.pkl', 'rb'))
+    models['yield_model']       = pickle.load(open('models/yield_model.pkl', 'rb'))
+    models['yield_crop_encoder']= pickle.load(open('models/yield_crop_encoder.pkl', 'rb'))
+    models['country_encoder']   = pickle.load(open('models/country_encoder.pkl', 'rb'))
+    models['shap_explainer']    = pickle.load(open('models/shap_explainer.pkl', 'rb'))
+    with open('models/crop_model_metadata.json') as f:
+        models['crop_metadata'] = json.load(f)
+    return models
+
+
+# ─────────────────────────────────────────────────
+# HELPER FUNCTIONS
+# ─────────────────────────────────────────────────
+
+def get_season():
+    month = datetime.datetime.now().month
+    if month in [6,7,8,9,10]:   return "Kharif"
+    elif month in [11,12,1,2,3]: return "Rabi"
+    else:                         return "Zaid"
+
+
+def get_top5_crops(model, encoder, N, P, K, temperature, humidity, ph, rainfall):
+    sample = pd.DataFrame([[N, P, K, temperature, humidity, ph, rainfall]],
+                          columns=['N','P','K','temperature','humidity','ph','rainfall'])
+    proba = model.predict_proba(sample)[0]
+    top5_idx   = np.argsort(proba)[::-1][:5]
+    top5_crops = encoder.classes_[top5_idx]
+    top5_conf  = proba[top5_idx] * 100
+    return list(zip(top5_crops, top5_conf))
+
+
+def get_fertilizer_recommendation(models, soil_type, top_crop, temperature, humidity, N, K, P):
+    """Smart fertilizer recommendation with proper crop matching"""
+    try:
+        crop_fert_classes = list(models['crop_fert_encoder'].classes_)
+        fert_crop = None
+        # Exact match first
+        for c in crop_fert_classes:
+            if c.lower() == top_crop.lower():
+                fert_crop = c
+                break
+        # Partial match
+        if not fert_crop:
+            for c in crop_fert_classes:
+                if c.lower() in top_crop.lower() or top_crop.lower() in c.lower():
+                    fert_crop = c
+                    break
+        # Map common crops to fertilizer dataset equivalents
+        if not fert_crop:
+            crop_map = {
+                'rice': 'Paddy', 'banana': 'Sugarcane', 'mango': 'Sugarcane',
+                'apple': 'Wheat', 'grapes': 'Cotton', 'orange': 'Sugarcane',
+                'papaya': 'Sugarcane', 'coconut': 'Sugarcane',
+                'chickpea': 'Pulses', 'lentil': 'Pulses',
+                'kidneybeans': 'Pulses', 'blackgram': 'Pulses',
+                'mungbean': 'Pulses', 'mothbeans': 'Pulses',
+                'pigeonpeas': 'Pulses', 'pomegranate': 'Cotton',
+                'watermelon': 'Millets', 'muskmelon': 'Millets',
+                'jute': 'Cotton', 'coffee': 'Sugarcane',
+            }
+            mapped = crop_map.get(top_crop.lower())
+            if mapped and mapped in crop_fert_classes:
+                fert_crop = mapped
+
+        if not fert_crop:
+            fert_crop = crop_fert_classes[0]
+
+        soil_enc = models['soil_encoder'].transform([soil_type])[0]
+        crop_enc = models['crop_fert_encoder'].transform([fert_crop])[0]
+        sample = pd.DataFrame([[temperature, humidity, 40, soil_enc, crop_enc, N, K, P]],
+                              columns=['Temparature','Humidity','Moisture',
+                                       'soil_encoded','crop_encoded',
+                                       'Nitrogen','Potassium','Phosphorous'])
+        pred = models['fertilizer_model'].predict(sample)[0]
+        return models['fertilizer_encoder'].inverse_transform([pred])[0]
+    except Exception:
+        return "Balanced NPK"
+
+
+def get_yield_prediction(model, crop_enc, country_enc, rainfall, temp):
+    sample = pd.DataFrame([[crop_enc, country_enc, 2024, rainfall, 50, temp]],
+                          columns=['crop_encoded','country_encoded','year',
+                                   'rainfall_mm','pesticides_tonnes','avg_temp'])
+    pred = model.predict(sample)[0]
+    return pred, round(pred * 0.90, 2), round(pred * 1.10, 2)
+
+
+COUNTRY_MAP = {
+    'IN':'India','US':'United States','GB':'United Kingdom','AU':'Australia',
+    'CN':'China','BR':'Brazil','PK':'Pakistan','BD':'Bangladesh',
+    'NP':'Nepal','LK':'Sri Lanka','TH':'Thailand','VN':'Vietnam',
+    'ID':'Indonesia','PH':'Philippines','MM':'Myanmar','DE':'Germany',
+    'FR':'France','JP':'Japan','KR':'South Korea','ZA':'South Africa',
+    'NG':'Nigeria','ET':'Ethiopia','KE':'Kenya','MX':'Mexico','AR':'Argentina',
+}
+
+
+def geocode_location(location):
+    api_key = st.secrets.get("WEATHER_API_KEY", "")
+    if not api_key:
+        return None, "WEATHER_API_KEY not set in secrets.toml"
+    try:
+        r = requests.get("http://api.openweathermap.org/geo/1.0/direct",
+                         params={"q": location, "limit": 5, "appid": api_key}, timeout=5)
+        data = r.json()
+        if r.status_code != 200 or not data:
+            return None, "No locations found. Try a different spelling."
+        return data, None
+    except Exception as e:
+        return None, str(e)
+
+
+def fetch_weather_by_coords(lat, lon):
+    import datetime as _dt
+    api_key = st.secrets.get("WEATHER_API_KEY", "")
+    try:
+        r = requests.get("https://api.openweathermap.org/data/2.5/weather",
+                         params={"lat": lat, "lon": lon, "appid": api_key, "units": "metric"}, timeout=5)
+        wx = r.json()
+        temperature = wx["main"]["temp"]
+        humidity    = wx["main"]["humidity"]
+        today        = _dt.date.today()
+        one_year_ago = today - _dt.timedelta(days=30)
+        rr = requests.get("https://archive-api.open-meteo.com/v1/archive",
+                          params={"latitude": lat, "longitude": lon,
+                                  "start_date": str(one_year_ago), "end_date": str(today),
+                                  "daily": "precipitation_sum", "timezone": "auto"}, timeout=15)
+        rain_data = rr.json()
+        annual_rainfall = round(sum(v for v in rain_data["daily"]["precipitation_sum"] if v is not None), 1)
+        raw_rainfall    = annual_rainfall
+        annual_rainfall = min(annual_rainfall, 300.0)
+        return temperature, humidity, annual_rainfall, raw_rainfall, None
+    except Exception as e:
+        return None, None, None, None, str(e)
+
+
+def get_soil_scorecard(N, P, K, ph):
+    sc = {}
+    sc['Nitrogen']   = ('Deficient','🔴','#ffebee') if N < 280 else (('Sufficient','🟢','#e8f5e9') if N <= 560 else ('Excess','🟠','#fff3e0'))
+    sc['Phosphorus'] = ('Deficient','🔴','#ffebee') if P < 10  else (('Sufficient','🟢','#e8f5e9') if P <= 25  else ('Excess','🟠','#fff3e0'))
+    sc['Potassium']  = ('Deficient','🔴','#ffebee') if K < 110 else (('Sufficient','🟢','#e8f5e9') if K <= 280 else ('Excess','🟠','#fff3e0'))
+    if   ph < 5.5:  sc['pH'] = ('Strongly Acidic',   '🔴','#ffebee')
+    elif ph < 6.0:  sc['pH'] = ('Moderately Acidic',  '🟠','#fff3e0')
+    elif ph <= 7.5: sc['pH'] = ('Optimal',             '🟢','#e8f5e9')
+    elif ph <= 8.5: sc['pH'] = ('Moderately Alkaline','🟠','#fff3e0')
+    else:           sc['pH'] = ('Strongly Alkaline',   '🔴','#ffebee')
+    return sc
+
+
+def parse_advice_sections(advice_text):
+    section_map = {
+        "SEED SELECTION":            "🌾",
+        "FERTILIZER SCHEDULE":       "💊",
+        "IRRIGATION PLAN":           "💧",
+        "DISEASE":                   "🦠",
+        "EXPECTED CHALLENGES":       "⚠️",
+        "HARVEST GUIDANCE":          "🌿",
+    }
+    display_names = {
+        "SEED SELECTION":      "Seed Selection",
+        "FERTILIZER SCHEDULE": "Fertilizer Schedule",
+        "IRRIGATION PLAN":     "Irrigation Plan",
+        "DISEASE":             "Disease & Pest Prevention",
+        "EXPECTED CHALLENGES": "Expected Challenges",
+        "HARVEST GUIDANCE":    "Harvest Guidance",
+    }
+    result = {}
+    current_section = None
+    current_lines   = []
+    for line in advice_text.split('\n'):
+        line_clean = line.strip().upper().replace('#','').replace('*','').strip()
+        matched = False
+        for section in section_map:
+            if section in line_clean:
+                if current_section:
+                    result[current_section] = '\n'.join(current_lines).strip()
+                current_section = section
+                current_lines   = []
+                matched = True
+                break
+        if not matched and current_section:
+            current_lines.append(line)
+    if current_section:
+        result[current_section] = '\n'.join(current_lines).strip()
+    return result, section_map, display_names
+
+
+# ─────────────────────────────────────────────────
+# NEW FEATURE FUNCTIONS
+# ─────────────────────────────────────────────────
+
+def show_input_quality_validator(N, P, K, ph, temperature, humidity, rainfall):
+    """Feature 1: Input Quality Validator"""
+    issues = []
+    warnings = []
+    scores = []
+
+    # Nitrogen check
+    if 0 <= N <= 140:
+        scores.append(100)
+    elif N > 140:
+        issues.append("⚠️ Nitrogen value exceeds typical agricultural range (0-140 kg/ha)")
+        scores.append(60)
+    else:
+        issues.append("❌ Nitrogen cannot be negative")
+        scores.append(0)
+
+    # Phosphorus check
+    if 0 <= P <= 145:
+        scores.append(100)
+    elif P > 145:
+        issues.append("⚠️ Phosphorus value exceeds typical range (0-145 kg/ha)")
+        scores.append(60)
+    else:
+        scores.append(0)
+
+    # Potassium check
+    if 0 <= K <= 205:
+        scores.append(100)
+    elif K > 205:
+        issues.append("⚠️ Potassium value exceeds typical range (0-205 kg/ha)")
+        scores.append(60)
+    else:
+        scores.append(0)
+
+    # pH check
+    if 4.0 <= ph <= 9.5:
+        scores.append(100)
+    elif ph < 4.0:
+        issues.append("⚠️ pH below 4.0 is extremely rare — please verify your soil test report")
+        scores.append(40)
+    elif ph > 9.5:
+        issues.append("⚠️ pH above 9.5 is extremely rare — please verify your soil test report")
+        scores.append(40)
+    else:
+        scores.append(0)
+
+    # Temperature check
+    if 10 <= temperature <= 45:
+        scores.append(100)
+    elif temperature < 10:
+        warnings.append("ℹ️ Temperature below 10°C — very few crops grow well in this condition")
+        scores.append(70)
+    else:
+        warnings.append("ℹ️ Temperature above 45°C — extremely hot conditions, verify API data")
+        scores.append(70)
+
+    # Humidity check
+    if 20 <= humidity <= 95:
+        scores.append(100)
+    else:
+        warnings.append("ℹ️ Humidity value seems unusual — verify if location data is correct")
+        scores.append(70)
+
+    # Rainfall check
+    if 20 <= rainfall <= 300:
+        scores.append(100)
+    elif rainfall < 20:
+        warnings.append("ℹ️ Very low rainfall — arid conditions detected")
+        scores.append(80)
+    else:
+        scores.append(90)
+
+    overall_score = int(sum(scores) / len(scores))
+    grade = "HIGH ✅" if overall_score >= 85 else ("MEDIUM ⚠️" if overall_score >= 65 else "LOW ❌")
+    grade_color = "#1b5e20" if overall_score >= 85 else ("#f57c00" if overall_score >= 65 else "#c62828")
+
+    st.markdown('<div class="section-title">🔍 Input Quality Report</div>', unsafe_allow_html=True)
+
+    cols = st.columns([1, 2])
+    with cols[0]:
+        # Score circle
+        fig = go.Figure(go.Indicator(
+            mode="gauge+number",
+            value=overall_score,
+            title={'text': "<b>Input Quality Score</b>", 'font': {'size': 13, 'color': '#1b5e20'}},
+            number={'suffix': '/100', 'font': {'size': 28, 'color': grade_color}},
+            gauge={
+                'axis': {'range': [0, 100]},
+                'bar': {'color': grade_color, 'thickness': 0.3},
+                'steps': [
+                    {'range': [0,   65],  'color': '#ffebee'},
+                    {'range': [65,  85],  'color': '#fff3e0'},
+                    {'range': [85, 100],  'color': '#e8f5e9'},
+                ],
+            }
+        ))
+        fig.update_layout(height=200, margin=dict(t=40,b=10,l=10,r=10),
+                          paper_bgcolor='rgba(0,0,0,0)')
+        st.plotly_chart(fig, use_container_width=True)
+        st.markdown(
+            f'<div style="text-align:center;background:{grade_color};color:white;'
+            f'border-radius:20px;padding:0.4rem 1rem;font-weight:800;font-size:1rem">'
+            f'Quality: {grade}</div>', unsafe_allow_html=True
+        )
+
+    with cols[1]:
+        params = [
+            ('Nitrogen (N)',   N,           0, 140,  'kg/ha'),
+            ('Phosphorus (P)', P,           0, 145,  'kg/ha'),
+            ('Potassium (K)',  K,           0, 205,  'kg/ha'),
+            ('pH Level',       ph,          0,  14,  ''),
+            ('Temperature',    temperature, 0,  50,  '°C'),
+            ('Humidity',       humidity,    0, 100,  '%'),
+            ('Rainfall',       rainfall,    0, 300,  'mm'),
+        ]
+        for name, val, mn, mx, unit in params:
+            pct     = min(100, int((val - mn) / (mx - mn) * 100))
+            in_rng  = mn <= val <= mx
+            color   = '#1b5e20' if in_rng else '#c62828'
+            status  = '✅' if in_rng else '⚠️'
+            st.markdown(
+                f'<div style="display:flex;align-items:center;gap:0.6rem;margin:0.35rem 0">'
+                f'<span style="width:120px;font-size:0.82rem;font-weight:600;color:#374151">{name}</span>'
+                f'<div style="flex:1;background:#e8f5e9;border-radius:6px;height:10px;overflow:hidden">'
+                f'<div style="width:{pct}%;height:10px;background:{color};border-radius:6px"></div></div>'
+                f'<span style="width:80px;font-size:0.82rem;font-weight:700;color:{color}">{val}{unit}</span>'
+                f'<span>{status}</span>'
+                f'</div>', unsafe_allow_html=True
+            )
+
+    if issues:
+        for issue in issues:
+            st.error(issue)
+    if warnings:
+        for warning in warnings:
+            st.warning(warning)
+    if not issues and not warnings:
+        st.success("✅ All input values are within normal agricultural ranges. Prediction confidence is HIGH.")
+
+    return overall_score
+
+
+def show_soil_improvement_advisor(N, P, K, ph, soil_type, top_crop):
+    """Feature 2: Soil Health Improvement Advisor"""
+    st.markdown('<div class="section-title">🌱 Soil Health Improvement Advisor</div>', unsafe_allow_html=True)
+
+    steps = []
+    urgency_count = 0
+
+    # Nitrogen advice
+    if N < 280:
+        steps.append({
+            'icon': '🟥', 'priority': 'URGENT',
+            'title': 'Correct Nitrogen Deficiency',
+            'action': f'Apply 80-120 kg/ha Urea in split doses (40% at sowing, 30% at tillering, 30% at flowering)',
+            'timeline': 'Immediate — before next sowing',
+            'expected': 'N levels should reach sufficient range within 1 growing season'
+        })
+        urgency_count += 1
+    elif N > 560:
+        steps.append({
+            'icon': '🟠', 'priority': 'REDUCE',
+            'title': 'Reduce Excess Nitrogen',
+            'action': 'Reduce nitrogen fertilizer by 40%. Plant a cereal crop like maize to absorb excess N.',
+            'timeline': 'Over next 2 seasons',
+            'expected': 'N levels normalize in 1-2 crop cycles'
+        })
+
+    # Phosphorus advice
+    if P < 10:
+        steps.append({
+            'icon': '🟥', 'priority': 'URGENT',
+            'title': 'Correct Phosphorus Deficiency',
+            'action': 'Apply 60-80 kg/ha DAP (Diammonium Phosphate) at sowing time, banded near seed zone',
+            'timeline': 'Immediate — at next sowing',
+            'expected': 'P availability improves within 1 season'
+        })
+        urgency_count += 1
+    elif P > 25:
+        steps.append({
+            'icon': '🟠', 'priority': 'MONITOR',
+            'title': 'Manage Excess Phosphorus',
+            'action': 'Skip phosphorus fertilizer for 1-2 seasons. Excess P can block zinc absorption.',
+            'timeline': 'Next 1-2 seasons',
+            'expected': 'P levels reduce naturally with crop uptake'
+        })
+
+    # Potassium advice
+    if K < 110:
+        steps.append({
+            'icon': '🟥', 'priority': 'URGENT',
+            'title': 'Correct Potassium Deficiency',
+            'action': 'Apply 80-100 kg/ha Muriate of Potash (MOP) at sowing time, mixed into topsoil',
+            'timeline': 'Immediate — before next sowing',
+            'expected': 'K levels improve within 1 season'
+        })
+        urgency_count += 1
+    elif K > 280:
+        steps.append({
+            'icon': '🟠', 'priority': 'REDUCE',
+            'title': 'Reduce Excess Potassium',
+            'action': 'Stop potassium application for 1-2 seasons. Excess K affects calcium and magnesium uptake.',
+            'timeline': 'Next 1-2 seasons',
+            'expected': 'K normalizes as crop uptake reduces levels'
+        })
+
+    # pH advice
+    if ph < 5.5:
+        steps.append({
+            'icon': '🟥', 'priority': 'CRITICAL',
+            'title': 'Correct Strongly Acidic Soil',
+            'action': f'Apply 2-3 tonnes/ha agricultural lime (calcium carbonate). Work into top 15cm of soil.',
+            'timeline': '3-6 months before planting — lime reacts slowly',
+            'expected': 'pH should rise to 6.0-6.5 within 1 season after liming'
+        })
+        urgency_count += 1
+    elif ph > 8.5:
+        steps.append({
+            'icon': '🟥', 'priority': 'CRITICAL',
+            'title': 'Correct Strongly Alkaline Soil',
+            'action': 'Apply 1-2 tonnes/ha agricultural gypsum or sulphur. Add 10 tonnes/ha organic matter.',
+            'timeline': '2-4 months before planting',
+            'expected': 'pH should decrease by 0.5-1.0 units per treatment'
+        })
+        urgency_count += 1
+
+    # Organic matter step (always recommend)
+    steps.append({
+        'icon': '🟢', 'priority': 'RECOMMENDED',
+        'title': 'Add Organic Matter',
+        'action': 'Apply 10-15 tonnes/ha well-decomposed farmyard manure OR compost before planting. Improves all soil parameters.',
+        'timeline': '2-4 weeks before planting',
+        'expected': 'Gradual improvement in soil structure, water retention and nutrient availability over 2-3 seasons'
+    })
+
+    # Show summary badge
+    if urgency_count == 0:
+        st.success("✅ Your soil is in good condition! Follow the recommended steps below to maintain and improve it.")
+    elif urgency_count == 1:
+        st.warning(f"⚠️ 1 urgent correction needed before planting {top_crop.title()}. See steps below.")
+    else:
+        st.error(f"❌ {urgency_count} urgent corrections needed. Address these before planting for best results.")
+
+    # Show steps
+    priority_colors = {
+        'URGENT': '#c62828', 'CRITICAL': '#c62828',
+        'REDUCE': '#f57c00', 'MONITOR': '#f57c00',
+        'RECOMMENDED': '#1b5e20'
+    }
+
+    for i, step in enumerate(steps, 1):
+        color = priority_colors.get(step['priority'], '#1b5e20')
+        with st.expander(f"{step['icon']} Step {i}: {step['title']} — [{step['priority']}]", expanded=(i==1)):
+            st.markdown(
+                f'<div class="soil-fix-step">'
+                f'<div style="font-weight:700;color:{color};margin-bottom:0.4rem">🎯 Action Required:</div>'
+                f'<div style="color:#1f2937;margin-bottom:0.6rem">{step["action"]}</div>'
+                f'<div style="display:flex;gap:2rem;font-size:0.82rem;color:#6b7280">'
+                f'<span>⏱️ <b>Timeline:</b> {step["timeline"]}</span>'
+                f'<span>📈 <b>Expected:</b> {step["expected"]}</span>'
+                f'</div></div>', unsafe_allow_html=True
+            )
+
+
+def show_crop_rotation_engine(top_crop, season, N, P, K):
+    """Feature 3: Crop Rotation Intelligence Engine"""
+    st.markdown('<div class="section-title">🔄 Crop Rotation Intelligence Engine</div>', unsafe_allow_html=True)
+
+    # Rotation database — what each crop depletes/restores
+    crop_effects = {
+        'rice':        {'depletes': 'N', 'effect': 'Depletes N', 'type': 'cereal'},
+        'wheat':       {'depletes': 'N', 'effect': 'Depletes N', 'type': 'cereal'},
+        'maize':       {'depletes': 'N,K', 'effect': 'Depletes N,K', 'type': 'cereal'},
+        'sugarcane':   {'depletes': 'N,P,K', 'effect': 'Heavy feeder', 'type': 'cash'},
+        'cotton':      {'depletes': 'N,P', 'effect': 'Depletes N,P', 'type': 'cash'},
+        'jute':        {'depletes': 'N', 'effect': 'Depletes N', 'type': 'fiber'},
+        'banana':      {'depletes': 'N,K', 'effect': 'Heavy feeder', 'type': 'fruit'},
+        'chickpea':    {'depletes': '', 'effect': 'Fixes N ✅', 'type': 'legume'},
+        'lentil':      {'depletes': '', 'effect': 'Fixes N ✅', 'type': 'legume'},
+        'kidneybeans': {'depletes': '', 'effect': 'Fixes N ✅', 'type': 'legume'},
+        'blackgram':   {'depletes': '', 'effect': 'Fixes N ✅', 'type': 'legume'},
+        'mungbean':    {'depletes': '', 'effect': 'Fixes N ✅', 'type': 'legume'},
+        'mothbeans':   {'depletes': '', 'effect': 'Fixes N ✅', 'type': 'legume'},
+        'pigeonpeas':  {'depletes': '', 'effect': 'Fixes N ✅', 'type': 'legume'},
+        'watermelon':  {'depletes': 'K', 'effect': 'Depletes K', 'type': 'fruit'},
+        'muskmelon':   {'depletes': 'K', 'effect': 'Depletes K', 'type': 'fruit'},
+    }
+
+    # Build rotation plan based on current crop
+    crop_key = top_crop.lower()
+    crop_info = crop_effects.get(crop_key, {'depletes': 'N', 'effect': 'Depletes nutrients', 'type': 'cereal'})
+
+    # Season sequence
+    seasons = ['Kharif', 'Rabi', 'Zaid']
+    season_emojis = {'Kharif': '☀️', 'Rabi': '❄️', 'Zaid': '🌸'}
+    current_idx = seasons.index(season) if season in seasons else 0
+
+    # Build 4-season rotation
+    rotation = []
+    rotation.append({
+        'season': f"{season} (Now)",
+        'crop': top_crop.title(),
+        'emoji': '🌾',
+        'effect': crop_info['effect'],
+        'effect_type': 'bad' if crop_info.get('depletes') else 'good',
+        'reason': 'AI recommended based on your soil'
+    })
+
+    # Season 2 — recommend legume if current crop depletes N
+    s2 = seasons[(current_idx + 1) % 3]
+    if 'N' in crop_info.get('depletes', '') or crop_info['type'] == 'cereal':
+        rotation.append({
+            'season': s2,
+            'crop': 'Chickpea' if s2 == 'Rabi' else 'Mungbean',
+            'emoji': '🫘',
+            'effect': 'Restores N naturally',
+            'effect_type': 'good',
+            'reason': f'Legume restores nitrogen depleted by {top_crop.title()}'
+        })
+    else:
+        rotation.append({
+            'season': s2,
+            'crop': 'Wheat' if s2 == 'Rabi' else 'Maize',
+            'emoji': '🌾',
+            'effect': 'Breaks pest cycle',
+            'effect_type': 'good',
+            'reason': 'Different crop family breaks pest and disease cycle'
+        })
+
+    # Season 3
+    s3 = seasons[(current_idx + 2) % 3]
+    rotation.append({
+        'season': s3,
+        'crop': 'Maize' if s3 == 'Kharif' else ('Mustard' if s3 == 'Rabi' else 'Watermelon'),
+        'emoji': '🌽' if s3 == 'Kharif' else ('🌻' if s3 == 'Rabi' else '🍉'),
+        'effect': 'Uses restored nutrients',
+        'effect_type': 'good',
+        'reason': 'Benefits from improved soil after legume season'
+    })
+
+    # Season 4 — back to original or similar
+    s4 = season
+    rotation.append({
+        'season': f"{s4} (Next Year)",
+        'crop': top_crop.title(),
+        'emoji': '🌾',
+        'effect': 'Higher yield expected',
+        'effect_type': 'good',
+        'reason': 'Soil restored — expect 15-25% higher yield than first season'
+    })
+
+    # Display rotation as visual timeline
+    st.markdown(
+        '<div style="background:linear-gradient(135deg,rgba(27,94,32,0.06),rgba(255,215,0,0.06));'
+        'border-radius:14px;padding:1rem;margin-bottom:1rem;border:1px solid rgba(27,94,32,0.15)">'
+        '<div style="font-size:0.82rem;color:#6b7280;margin-bottom:0.8rem;font-weight:600">'
+        '🔄 3-Year Rotation Plan — Optimized for your soil conditions</div>',
+        unsafe_allow_html=True
+    )
+
+    rot_cols = st.columns(4)
+    for i, (col, rot) in enumerate(zip(rot_cols, rotation)):
+        effect_cls   = 'effect-good' if rot['effect_type'] == 'good' else 'effect-bad'
+        border_color = '#ffd700' if i == 0 else '#a5d6a7'
+        with col:
+            st.markdown(
+                f'<div class="rotation-card" style="border-color:{border_color}">'
+                f'<div class="rotation-season">{season_emojis.get(rot["season"].split()[0], "🌱")} {rot["season"]}</div>'
+                f'<div style="font-size:2rem;margin:0.4rem 0">{rot["emoji"]}</div>'
+                f'<div class="rotation-crop">{rot["crop"]}</div>'
+                f'<div class="rotation-effect {effect_cls}">{rot["effect"]}</div>'
+                f'<div style="font-size:0.68rem;color:#6b7280;margin-top:0.4rem">{rot["reason"]}</div>'
+                f'</div>',
+                unsafe_allow_html=True
+            )
+        if i < 3:
+            st.markdown('<div style="display:flex;align-items:center;justify-content:center;font-size:1.5rem;margin-top:2.5rem">→</div>', unsafe_allow_html=True)
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # Benefits summary
+    st.info(
+        "💡 **Why crop rotation?** This plan breaks pest cycles, naturally restores nitrogen, "
+        "and improves soil structure. Following this rotation can increase yield by 15-25% by "
+        "the 3rd year without increasing fertilizer cost."
+    )
+
+
+def show_crop_calendar(top_crop, season):
+    st.markdown(
+        '<div class="section-title">📅 Seasonal Crop Calendar</div>',
+        unsafe_allow_html=True
+    )
+
+    calendar_data = {
+        'Kharif': {
+            6:  ('Land Prep',  '🚜', 'Plow field, add organic matter'),
+            7:  ('Sowing',     '🌱', 'Sow seeds or transplant seedlings'),
+            8:  ('Vegetative', '💧', 'First fertilizer dose + irrigation'),
+            9:  ('Growth',     '🌿', 'Second fertilizer + pest monitoring'),
+            10: ('Flowering',  '🌸', 'Critical irrigation — do not miss'),
+            11: ('Maturity',   '🌾', 'Stop irrigation, pre-harvest prep'),
+            12: ('Harvest',    '✂️', 'Harvest and dry the crop'),
+        },
+        'Rabi': {
+            10: ('Land Prep',  '🚜', 'Plow field, add organic matter'),
+            11: ('Sowing',     '🌱', 'Sow seeds'),
+            12: ('Growth',     '💧', 'First irrigation + fertilizer'),
+            1:  ('Tillering',  '🌿', 'Second fertilizer + weed control'),
+            2:  ('Flowering',  '🌸', 'Critical irrigation stage'),
+            3:  ('Grain Fill', '🌾', 'Third fertilizer if needed'),
+            4:  ('Harvest',    '✂️', 'Harvest when golden'),
+        },
+        'Zaid': {
+            3:  ('Land Prep',  '🚜', 'Quick land preparation'),
+            4:  ('Sowing',     '🌱', 'Sow seeds on raised beds'),
+            5:  ('Growth',     '💧', 'Frequent irrigation needed'),
+            6:  ('Flowering',  '🌸', 'Peak water requirement stage'),
+            7:  ('Harvest',    '✂️', 'Harvest before monsoon'),
+        }
+    }
+
+    cal = calendar_data.get(season, calendar_data['Kharif'])
+    current_month = datetime.datetime.now().month
+
+    month_names = {
+        1:'Jan', 2:'Feb', 3:'Mar', 4:'Apr',
+        5:'May', 6:'Jun', 7:'Jul', 8:'Aug',
+        9:'Sep', 10:'Oct', 11:'Nov', 12:'Dec'
+    }
+
+    season_months = list(cal.keys())
+    sowing_month  = season_months[1]
+    start_month   = season_months[0]
+
+    if current_month == start_month or current_month == sowing_month:
+        status_msg   = f"✅ Perfect timing! This is the right time to start {top_crop.title()} farming."
+        status_color = "#1b5e20"
+        status_bg    = "#e8f5e9"
+    elif current_month in season_months:
+        stage_name   = cal[current_month][0]
+        status_msg   = (
+            f"📅 If you started on time, you should be in the "
+            f"**{stage_name}** stage now. "
+            f"If you are starting fresh this season, consider "
+            f"starting with Land Prep immediately and adjust the timeline forward."
+        )
+        status_color = "#f57c00"
+        status_bg    = "#fff3e0"
+    else:
+        months_until = (start_month - current_month) % 12
+        status_msg   = (
+            f"📋 The {season} season for {top_crop.title()} "
+            f"starts in {month_names[start_month]}. "
+            f"You have approximately {months_until} month(s) to prepare. "
+            f"Use this time to test your soil and arrange inputs."
+        )
+        status_color = "#1b5e20"
+        status_bg    = "#e8f5e9"
+
+    st.markdown(
+        f'<div style="font-size:0.88rem;color:#6b7280;margin-bottom:1rem">'
+        f'📅 Complete farming timeline for <b>{top_crop.title()}</b> '
+        f'in <b>{season}</b> season. '
+        f'Use this to plan your farming activities month by month.'
+        f'</div>',
+        unsafe_allow_html=True
+    )
+
+    cal_cols = st.columns(len(cal))
+    for (month, (activity, emoji, desc)), col in zip(cal.items(), cal_cols):
+        is_current = (month == current_month)
+        is_start   = (month == start_month)
+
+        if is_current:
+            bg     = 'background:linear-gradient(135deg,#1b5e20,#2e7d32);'
+            txt    = 'color:white;'
+            desc_c = 'color:#a5d6a7;'
+            border = 'border:2.5px solid #ffd700;'
+            now_badge = '<div style="font-size:0.62rem;background:rgba(255,215,0,0.4);border-radius:6px;padding:0.1rem 0.3rem;margin-top:0.3rem;color:#ffd700;font-weight:700">← NOW</div>'
+        elif is_start:
+            bg     = 'background:rgba(27,94,32,0.08);'
+            txt    = 'color:#1b5e20;'
+            desc_c = 'color:#6b7280;'
+            border = 'border:2px solid #a5d6a7;'
+            now_badge = '<div style="font-size:0.62rem;background:#e8f5e9;border-radius:6px;padding:0.1rem 0.3rem;margin-top:0.3rem;color:#1b5e20;font-weight:700">START</div>'
+        else:
+            bg     = 'background:rgba(255,255,255,0.9);'
+            txt    = 'color:#1b5e20;'
+            desc_c = 'color:#6b7280;'
+            border = 'border:1.5px solid rgba(27,94,32,0.15);'
+            now_badge = ''
+
+        with col:
+            st.markdown(
+                f'<div style="{bg}{border}border-radius:12px;padding:0.7rem 0.4rem;'
+                f'text-align:center;box-shadow:0 3px 10px rgba(27,94,32,0.1);margin:0.2rem 0">'
+                f'<div style="font-size:0.68rem;font-weight:700;text-transform:uppercase;'
+                f'letter-spacing:0.5px;{txt}">{month_names[month]}</div>'
+                f'<div style="font-size:1.4rem;margin:0.3rem 0">{emoji}</div>'
+                f'<div style="font-size:0.72rem;font-weight:700;{txt}">{activity}</div>'
+                f'<div style="font-size:0.62rem;margin-top:0.2rem;{desc_c}">{desc}</div>'
+                f'{now_badge}'
+                f'</div>',
+                unsafe_allow_html=True
+            )
+
+    st.markdown(
+        f'<div style="background:{status_bg};border-radius:12px;'
+        f'padding:0.85rem 1.2rem;margin-top:0.8rem;'
+        f'border-left:4px solid {status_color};font-size:0.88rem;'
+        f'color:{status_color}">'
+        f'{status_msg}'
+        f'</div>',
+        unsafe_allow_html=True
+    )
+
+
+def show_yield_gap_analysis(top_crop, pred, low, high, N, P, K, ph, shap_pairs):
+    """Feature 5: Yield Gap Analysis"""
+    st.markdown('<div class="section-title">📊 Yield Gap Analysis</div>', unsafe_allow_html=True)
+
+    try:
+        yield_df = pd.read_csv('datasets/cleaned_yield.csv')
+        crop_data = yield_df[yield_df['crop'].str.lower() == top_crop.lower()]
+
+        if len(crop_data) == 0:
+            st.info("Yield gap analysis not available for this crop in our dataset.")
+            return
+
+        avg_yield  = round(crop_data['yield_tonnes_per_ha'].mean(), 2)
+        best_yield = round(crop_data['yield_tonnes_per_ha'].quantile(0.90), 2)
+        gap        = round(best_yield - pred, 2)
+        gap_pct    = round((gap / best_yield) * 100, 1) if best_yield > 0 else 0
+
+        # Visual comparison bar
+        max_val = max(best_yield * 1.1, pred * 1.1)
+
+        your_pct  = int((pred / max_val) * 100)
+        avg_pct   = int((avg_yield / max_val) * 100)
+        best_pct  = int((best_yield / max_val) * 100)
+
+        st.markdown(
+            f'<div class="feature-card">'
+            f'<div class="feature-card-title">📊 Yield Comparison</div>'
+            f'<div style="margin:0.6rem 0">'
+            f'<div style="display:flex;align-items:center;gap:0.8rem;margin:0.5rem 0">'
+            f'<span style="width:120px;font-size:0.82rem;font-weight:700;color:#1b5e20">Your Yield</span>'
+            f'<div style="flex:1;background:#e8f5e9;border-radius:6px;height:16px;overflow:hidden">'
+            f'<div style="width:{your_pct}%;height:16px;background:linear-gradient(90deg,#1b5e20,#ffd700);border-radius:6px"></div></div>'
+            f'<span style="width:80px;font-size:0.88rem;font-weight:800;color:#1b5e20">{pred:.1f} t/ha</span>'
+            f'</div>'
+            f'<div style="display:flex;align-items:center;gap:0.8rem;margin:0.5rem 0">'
+            f'<span style="width:120px;font-size:0.82rem;font-weight:700;color:#f57c00">Global Average</span>'
+            f'<div style="flex:1;background:#fff3e0;border-radius:6px;height:16px;overflow:hidden">'
+            f'<div style="width:{avg_pct}%;height:16px;background:#f57c00;border-radius:6px"></div></div>'
+            f'<span style="width:80px;font-size:0.88rem;font-weight:800;color:#f57c00">{avg_yield:.1f} t/ha</span>'
+            f'</div>'
+            f'<div style="display:flex;align-items:center;gap:0.8rem;margin:0.5rem 0">'
+            f'<span style="width:120px;font-size:0.82rem;font-weight:700;color:#c62828">Top 10% Yield</span>'
+            f'<div style="flex:1;background:#ffebee;border-radius:6px;height:16px;overflow:hidden">'
+            f'<div style="width:{best_pct}%;height:16px;background:#c62828;border-radius:6px"></div></div>'
+            f'<span style="width:80px;font-size:0.88rem;font-weight:800;color:#c62828">{best_yield:.1f} t/ha</span>'
+            f'</div>'
+            f'</div>'
+            f'<div style="background:linear-gradient(135deg,rgba(198,40,40,0.08),rgba(255,255,255,0.9));'
+            f'border-radius:10px;padding:0.8rem;border-left:4px solid #c62828;margin-top:0.8rem">'
+            f'<b>Yield Gap: {gap:.1f} t/ha ({gap_pct}% below top performers)</b><br>'
+            f'<span style="font-size:0.82rem;color:#6b7280">Closing this gap could increase your income significantly.</span>'
+            f'</div>'
+            f'</div>',
+            unsafe_allow_html=True
+        )
+
+        # What's causing the gap — from SHAP
+        if shap_pairs:
+            st.markdown("**🔍 What's causing your yield gap:**")
+            neg_factors = [(f, v) for f, v in shap_pairs if v < 0]
+            if neg_factors:
+                for feat, val in neg_factors[:3]:
+                    # Map feature to improvement advice
+                    advice_map = {
+                        'Nitrogen':    f'Your N={N} kg/ha. Increasing to 100-120 kg/ha could reduce gap by ~0.5-1.0 t/ha',
+                        'Phosphorus':  f'Your P={P} kg/ha. Optimal P improves root system and yield significantly',
+                        'Potassium':   f'Your K={K} kg/ha. K improves grain filling and disease resistance',
+                        'pH':          f'Your pH={ph}. Correcting pH unlocks existing nutrients in soil',
+                        'Rainfall':    f'Rainfall of {N}mm is limiting. Consider irrigation to supplement rainfall',
+                        'Temperature': f'Temperature optimization through sowing date adjustment may help',
+                        'Humidity':    f'Humidity conditions are slightly unfavorable — monitor for disease',
+                    }
+                    improvement = advice_map.get(feat, f'{feat} is limiting yield potential')
+                    st.markdown(
+                        f'<div class="soil-fix-step" style="border-left-color:#c62828">'
+                        f'🔴 <b>{feat}</b> is limiting your yield<br>'
+                        f'<span style="font-size:0.82rem;color:#6b7280">{improvement}</span>'
+                        f'</div>',
+                        unsafe_allow_html=True
+                    )
+            else:
+                st.success("✅ Your soil and climate conditions are well-optimized. Yield gap is mainly due to regional factors.")
+
+    except Exception:
+        st.info("Yield gap analysis not available for this crop/region.")
+
+
+# ─────────────────────────────────────────────────
+# MAIN APP
+# ─────────────────────────────────────────────────
+
+def main():
+
+    st.markdown('<div class="main-header">🌾 AgroSense AI</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header">Intelligent Precision Farming Decision Support System</div>', unsafe_allow_html=True)
+    st.markdown('<hr class="header-divider">', unsafe_allow_html=True)
+
+    with st.spinner("⚙️ Initialising AI models..."):
+        models = load_models()
+
+    # Sidebar — clean, no data stays local text
+    st.sidebar.markdown(
+        '<div class="sidebar-logo-box">'
+        '<div style="font-size:2.2rem">🌾</div>'
+        '<div class="logo-title">AgroSense AI</div>'
+        '<div class="logo-sub">Precision Farming Intelligence</div>'
+        '</div>',
+        unsafe_allow_html=True
+    )
+    st.sidebar.markdown("---")
+    groq_key = st.secrets.get("GROQ_API_KEY", "")
+    st.sidebar.markdown("**📋 Navigation**")
+    page = st.sidebar.radio(
+        "",
+        ["🏠 Home & Prediction", "🤖 AI Farming Chatbot", "📋 My Farm Report"]
+    )
+    st.sidebar.markdown("---")
+
+    auto_season = get_season()
+
+    # ─────────────────────────────────────────────
+    # PAGE 1 — HOME & PREDICTION
+    # ─────────────────────────────────────────────
+
+    if page == "🏠 Home & Prediction":
+
+        # ── Weather Auto-fill (no showcase bar) ──
+        st.markdown('<div class="section-title">🌦️ Live Weather Auto-fill</div>', unsafe_allow_html=True)
+
+        location_input = st.text_input(
+            "Enter your city, town or village name",
+            placeholder="e.g. Chennai, Madurai, Pune, Delhi"
+        )
+        find_btn = st.button("🔍 Find My Location")
+
+        if find_btn and location_input:
+            with st.spinner("🌍 Searching locations..."):
+                results, err = geocode_location(location_input)
+            if err:
+                st.error(f"⚠️ {err}")
+            else:
+                options = []
+                for r in results:
+                    parts = [r.get("name","")]
+                    if r.get("state"): parts.append(r["state"])
+                    parts.append(COUNTRY_MAP.get(r.get("country",""), r.get("country","")))
+                    options.append(", ".join(parts))
+                st.session_state["geo_results"]   = results
+                st.session_state["geo_options"]   = options
+                st.session_state["geo_confirmed"] = False
+
+        if st.session_state.get("geo_options") and not st.session_state.get("geo_confirmed"):
+            selected_label = st.selectbox("Select your exact location:", st.session_state["geo_options"])
+            confirm_btn = st.button("✅ Confirm & Fetch Weather")
+            if confirm_btn:
+                idx    = st.session_state["geo_options"].index(selected_label)
+                chosen = st.session_state["geo_results"][idx]
+                lat, lon = chosen["lat"], chosen["lon"]
+                city_name    = chosen.get("name","")
+                state_name   = chosen.get("state","")
+                country_name = COUNTRY_MAP.get(chosen.get("country",""), chosen.get("country",""))
+
+                with st.spinner("🌍 Fetching weather + 30-day rainfall data..."):
+                    temperature, humidity, annual_rainfall, raw_rainfall, err = fetch_weather_by_coords(lat, lon)
+
+                if err:
+                    st.error(f"⚠️ Could not fetch weather: {err}")
+                else:
+                    import datetime as _dt
+                    _m = _dt.date.today().month
+                    _season = ("Kharif" if _m in [6,7,8,9,10] else ("Rabi" if _m in [11,12,1,2,3] else "Zaid"))
+                    st.session_state["wx_temp"]        = float(temperature)
+                    st.session_state["wx_humidity"]    = float(humidity)
+                    st.session_state["wx_rainfall"]    = float(annual_rainfall)
+                    st.session_state["wx_country"]     = country_name
+                    st.session_state["wx_state"]       = state_name
+                    st.session_state["wx_city"]        = city_name
+                    st.session_state["detected_season"]= _season
+                    st.session_state["geo_confirmed"]  = True
+                    loc_display = ", ".join(p for p in [city_name, state_name, country_name] if p)
+                    st.success(
+                        f"✅ Data fetched for **{loc_display}** | "
+                        f"🌡️ {temperature}°C | 💧 {humidity}% | "
+                        f"🌧️ {annual_rainfall}mm (last 30 days) | 📅 Season: {_season}"
+                    )
+
+        # ── Farm Input Form ──
+        st.markdown('<div class="section-title">📝 Farm Details</div>', unsafe_allow_html=True)
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            st.markdown('<div class="input-panel-header">🌱 Soil Nutrients</div>', unsafe_allow_html=True)
+            # Slider + number input side by side
+            n_col1, n_col2 = st.columns([3,1])
+            with n_col1: N = st.slider("Nitrogen (N) kg/ha", 0, 140, 90, key="N_slider")
+            with n_col2: N = st.number_input("N", 0, 140, N, label_visibility="collapsed", key="N_num")
+
+            p_col1, p_col2 = st.columns([3,1])
+            with p_col1: P = st.slider("Phosphorus (P) kg/ha", 0, 145, 42, key="P_slider")
+            with p_col2: P = st.number_input("P", 0, 145, P, label_visibility="collapsed", key="P_num")
+
+            k_col1, k_col2 = st.columns([3,1])
+            with k_col1: K = st.slider("Potassium (K) kg/ha", 0, 205, 43, key="K_slider")
+            with k_col2: K = st.number_input("K", 0, 205, K, label_visibility="collapsed", key="K_num")
+
+            ph_col1, ph_col2 = st.columns([3,1])
+            with ph_col1: ph = st.slider("pH Level", 0.0, 14.0, 6.5, 0.1, key="ph_slider")
+            with ph_col2: ph = st.number_input("pH", 0.0, 14.0, ph, 0.1, label_visibility="collapsed", key="ph_num")
+
+        with col2:
+            st.markdown('<div class="input-panel-header">🌤️ Climate Conditions</div>', unsafe_allow_html=True)
+            t_col1, t_col2 = st.columns([3,1])
+            with t_col1: temperature = st.slider("Temperature (°C)", 0.0, 50.0, st.session_state.get("wx_temp",25.0), 0.1)
+            with t_col2: temperature = st.number_input("T", 0.0, 50.0, temperature, 0.1, label_visibility="collapsed")
+
+            h_col1, h_col2 = st.columns([3,1])
+            with h_col1: humidity = st.slider("Humidity (%)", 0.0, 100.0, st.session_state.get("wx_humidity",71.0), 0.1)
+            with h_col2: humidity = st.number_input("H", 0.0, 100.0, humidity, 0.1, label_visibility="collapsed")
+
+            r_col1, r_col2 = st.columns([3,1])
+            with r_col1: rainfall = st.slider("Rainfall (mm/yr)", 0.0, 300.0, min(st.session_state.get("wx_rainfall",103.0),300.0), 0.1)
+            with r_col2: rainfall = st.number_input("R", 0.0, 300.0, rainfall, 0.1, label_visibility="collapsed")
+
+        with col3:
+            st.markdown('<div class="input-panel-header">🗺️ Farm Details</div>', unsafe_allow_html=True)
+            soil_type = st.selectbox("Soil Type", ['Loamy','Sandy','Clayey','Black','Red'])
+            _seasons  = ["Kharif","Rabi","Zaid"]
+            season    = st.selectbox("Season", _seasons, index=_seasons.index(st.session_state.get("detected_season", auto_season)))
+            st.caption("📅 Auto-detected from current month. You can change this if needed.")
+            _country_list    = sorted(models['country_encoder'].classes_)
+            _wx_country      = st.session_state.get("wx_country","")
+            _country_default = _wx_country if _wx_country in _country_list else _country_list[0]
+            country = st.selectbox("Country/Region", _country_list, index=_country_list.index(_country_default))
+
+        st.markdown('<hr class="fancy-divider">', unsafe_allow_html=True)
+        analyze = st.button("🔍 ✨ Analyse My Farm with AI")
+
+        if analyze:
+            with st.spinner("🌿 Running AI analysis..."):
+
+                # Input Quality Validation FIRST
+                quality_score = show_input_quality_validator(N, P, K, ph, temperature, humidity, rainfall)
+                st.markdown('<hr class="fancy-divider">', unsafe_allow_html=True)
+
+                # TOP 5 CROPS
+                top5     = get_top5_crops(models['crop_model'], models['crop_encoder'],
+                                          N, P, K, temperature, humidity, ph, rainfall)
+                top_crop = top5[0][0]
+
+                st.markdown('<div class="results-wrapper">', unsafe_allow_html=True)
+                st.markdown(
+                    f'<div class="results-banner">'
+                    f'<span style="font-size:2.5rem">🌾</span>'
+                    f'<div>'
+                    f'<p class="results-banner-title">AI Analysis Complete</p>'
+                    f'<p class="results-banner-sub">Top recommendation: <b style="color:#ffd700">{top_crop.title()}</b> · Season: {season} · {country}</p>'
+                    f'</div></div>',
+                    unsafe_allow_html=True
+                )
+
+                # TOP 5 CARDS
+                st.markdown('<div class="section-title">🏆 Top 5 Crop Recommendations</div>', unsafe_allow_html=True)
+                CROP_EMOJI = {
+                    'rice':'🌾','wheat':'🌾','maize':'🌽','cotton':'🧶','sugarcane':'🌿',
+                    'jute':'🌿','coffee':'☕','banana':'🍌','mango':'🥭','grapes':'🍇',
+                    'apple':'🍎','orange':'🍊','watermelon':'🍉','muskmelon':'🍈',
+                    'papaya':'🍍','coconut':'🥥','chickpea':'🫘','lentil':'🫘',
+                    'kidneybeans':'🫘','pigeonpeas':'🫘','mothbeans':'🫘',
+                    'mungbean':'🫘','blackgram':'🫘','pomegranate':'🍎',
+                }
+                rank_labels  = ['🥇','🥈','🥉','4️⃣','5️⃣']
+                rank_classes = ['top-card','','','','']
+                h_cols = st.columns(5)
+                for i, (crop, conf) in enumerate(top5):
+                    emoji = CROP_EMOJI.get(crop.lower(),'🌱')
+                    with h_cols[i]:
+                        st.markdown(
+                            f'<div class="crop-h-card {rank_classes[i]}">'
+                            f'<div class="crop-h-rank">{rank_labels[i]}</div>'
+                            f'<div class="crop-h-emoji">{emoji}</div>'
+                            f'<div class="crop-h-name">{crop.title()}</div>'
+                            f'<div class="crop-h-conf">{conf:.1f}% confidence</div>'
+                            f'<div class="crop-h-bar-bg"><div class="crop-h-bar-fill" style="width:{min(conf,100):.0f}%"></div></div>'
+                            f'</div>',
+                            unsafe_allow_html=True
+                        )
+
+                st.markdown('<hr class="fancy-divider">', unsafe_allow_html=True)
+
+                # SOIL HEALTH DASHBOARD
+                st.markdown('<div class="section-title">🧪 Soil Health Dashboard</div>', unsafe_allow_html=True)
+                scorecard = get_soil_scorecard(N, P, K, ph)
+                ok_count  = sum(1 for s,_,_ in scorecard.values() if s in ('Sufficient','Optimal'))
+                soil_grade= 'A' if ok_count==4 else ('B' if ok_count==3 else ('C' if ok_count==2 else 'D'))
+
+                g1,g2,g3,g4,g5 = st.columns(5)
+
+                def soil_gauge(label, value, max_val, status, col):
+                    color = '#2e7d32' if status in ('Sufficient','Optimal') else ('#c62828' if status=='Deficient' else '#f57c00')
+                    fig = go.Figure(go.Indicator(
+                        mode='gauge+number', value=value,
+                        title={'text':f'<b>{label}</b>','font':{'size':13,'color':'#1b5e20'}},
+                        number={'font':{'size':22,'color':color}},
+                        gauge={'axis':{'range':[0,max_val]},'bar':{'color':color,'thickness':0.3},
+                               'bgcolor':'white','borderwidth':0,
+                               'steps':[{'range':[0,max_val],'color':'#f1f5f9'}]}
+                    ))
+                    fig.update_layout(height=180,margin=dict(t=40,b=5,l=10,r=10),
+                                      paper_bgcolor='rgba(0,0,0,0)')
+                    with col:
+                        st.plotly_chart(fig, use_container_width=True)
+                        pc = '#e8f5e9' if status in ('Sufficient','Optimal') else ('#ffebee' if status=='Deficient' else '#fff3e0')
+                        tc = '#1b5e20' if status in ('Sufficient','Optimal') else ('#c62828' if status=='Deficient' else '#e65100')
+                        st.markdown(f'<div style="text-align:center;background:{pc};color:{tc};border-radius:20px;padding:0.2rem 0.6rem;font-size:0.75rem;font-weight:700;margin-top:-0.8rem">{status}</div>', unsafe_allow_html=True)
+
+                soil_gauge('Nitrogen (N)',   N,  140, scorecard['Nitrogen'][0],   g1)
+                soil_gauge('Phosphorus (P)', P,  145, scorecard['Phosphorus'][0], g2)
+                soil_gauge('Potassium (K)',  K,  205, scorecard['Potassium'][0],  g3)
+                soil_gauge('pH Level',       ph,  14, scorecard['pH'][0],         g4)
+                with g5:
+                    st.markdown(
+                        f'<div style="text-align:center;padding-top:1.2rem">'
+                        f'<div style="font-size:0.75rem;font-weight:700;color:#6b7280;letter-spacing:1px;text-transform:uppercase;margin-bottom:0.4rem">Overall Grade</div>'
+                        f'<div class="soil-grade-badge grade-{soil_grade}">{soil_grade}</div>'
+                        f'<div style="font-size:0.78rem;color:#6b7280;margin-top:0.3rem">{ok_count}/4 nutrients optimal</div>'
+                        f'</div>', unsafe_allow_html=True
+                    )
+
+                st.markdown('<hr class="fancy-divider">', unsafe_allow_html=True)
+
+                # SOIL IMPROVEMENT ADVISOR (NEW FEATURE 2)
+                show_soil_improvement_advisor(N, P, K, ph, soil_type, top_crop)
+                st.markdown('<hr class="fancy-divider">', unsafe_allow_html=True)
+
+                # FERTILIZER + YIELD
+                col3b, col4b = st.columns(2)
+
+                with col3b:
+                    st.markdown('<div class="section-title">🌿 Fertilizer Recommendation</div>', unsafe_allow_html=True)
+                    fertilizer = get_fertilizer_recommendation(models, soil_type, top_crop, temperature, humidity, N, K, P)
+                    st.markdown(
+                        f'<div class="fert-card">'
+                        f'<div class="fert-label">✨ AI Recommended Fertilizer</div>'
+                        f'<div class="fert-name">🌿 {fertilizer}</div>'
+                        f'</div>'
+                        f'<div class="fert-tip">💡 Apply based on soil test results. Consult your local agricultural officer for exact dosage and timing.</div>',
+                        unsafe_allow_html=True
+                    )
+                    # Why this fertilizer
+                    fert_reasons = {
+                        'Urea':         f'Your soil Nitrogen ({N} kg/ha) needs boosting. Urea provides 46% N — highest nitrogen content fertilizer.',
+                        'DAP':          f'Your Phosphorus ({P} kg/ha) is deficient. DAP provides both P and N for strong root development.',
+                        'MOP':          f'Your Potassium ({K} kg/ha) needs correction. MOP provides 60% K for crop quality and disease resistance.',
+                        '20-20':        f'Your soil needs balanced nutrition. 20-20 provides equal N, P, K for all-round improvement.',
+                        'Balanced NPK': f'Your soil needs overall nutritional balance based on current N={N}, P={P}, K={K} levels.',
+                    }
+                    reason = fert_reasons.get(fertilizer, f'Recommended based on your soil type ({soil_type}) and crop ({top_crop.title()}) combination.')
+                    st.markdown(
+                        f'<div class="shap-explain-box positive" style="margin-top:0.5rem">'
+                        f'🔍 <b>Why {fertilizer}?</b><br>{reason}'
+                        f'</div>', unsafe_allow_html=True
+                    )
+
+                with col4b:
+                    st.markdown('<div class="section-title">📊 Yield Prediction</div>', unsafe_allow_html=True)
+                    try:
+                        yield_classes = list(models['yield_crop_encoder'].classes_)
+                        yield_crop    = yield_classes[0]
+                        for c in yield_classes:
+                            if c.lower() in top_crop.lower() or top_crop.lower() in c.lower():
+                                yield_crop = c
+                                break
+                        crop_enc_y  = models['yield_crop_encoder'].transform([yield_crop])[0]
+                        country_enc = models['country_encoder'].transform([country])[0]
+                        pred, low, high = get_yield_prediction(models['yield_model'], crop_enc_y, country_enc, rainfall, temperature)
+
+                        fig = go.Figure(go.Indicator(
+                            mode="gauge+number+delta",
+                            value=round(pred,2),
+                            delta={'reference':round(low,2),'increasing':{'color':'#2e7d32'}},
+                            title={'text':"<b>Predicted Yield</b><br><span style='font-size:0.85em;color:#6b7280'>tonnes / hectare</span>",'font':{'size':16}},
+                            number={'font':{'size':42,'color':'#1b5e20'},'suffix':' t/ha'},
+                            gauge={
+                                'axis':{'range':[0,max(10,high*1.3)]},
+                                'bar':{'color':'#1b5e20','thickness':0.28},
+                                'bgcolor':'white','borderwidth':0,
+                                'steps':[
+                                    {'range':[0,low],'color':'#ffebee'},
+                                    {'range':[low,high],'color':'#c8e6c9'},
+                                    {'range':[high,high*1.3],'color':'#e8f5e9'},
+                                ],
+                                'threshold':{'line':{'color':'#ffd700','width':3},'thickness':0.85,'value':round(pred,2)}
+                            }
+                        ))
+                        fig.update_layout(height=300, margin=dict(t=60,b=10,l=20,r=20),
+                                          paper_bgcolor='rgba(0,0,0,0)')
+                        st.plotly_chart(fig, use_container_width=True)
+                        st.markdown(
+                            f'<div style="text-align:center;background:linear-gradient(90deg,#e8f5e9,#f0fdf4);'
+                            f'border-radius:10px;padding:0.6rem;border:1px solid #a5d6a7;font-size:0.88rem">'
+                            f'📊 Range: <b>{low} — {high}</b> t/ha'
+                            f'</div>', unsafe_allow_html=True
+                        )
+                        # Why this yield range
+                        st.markdown(
+                            f'<div class="shap-explain-box" style="margin-top:0.5rem">'
+                            f'🔍 <b>Why this yield range?</b><br>'
+                            f'Predicted based on {top_crop.title()} historical yield data for {country} '
+                            f'with your rainfall ({rainfall}mm) and temperature ({temperature}°C). '
+                            f'The ±10% range accounts for seasonal variability and farming practices.'
+                            f'</div>', unsafe_allow_html=True
+                        )
+                    except Exception:
+                        low, high, pred = 0, 0, 0
+                        st.info("Yield prediction not available for this crop/region.")
+
+                st.markdown('<hr class="fancy-divider">', unsafe_allow_html=True)
+
+                # CROP ROTATION ENGINE (NEW FEATURE 3)
+                show_crop_rotation_engine(top_crop, season, N, P, K)
+                st.markdown('<hr class="fancy-divider">', unsafe_allow_html=True)
+
+                # SEASONAL CROP CALENDAR (NEW FEATURE 4)
+                show_crop_calendar(top_crop, season)
+                st.markdown('<hr class="fancy-divider">', unsafe_allow_html=True)
+
+                # SHAP EXPLANATION
+                st.markdown('<div class="section-title">🔍 Why Our AI Recommended This Crop</div>', unsafe_allow_html=True)
+                shap_pairs = []
+                try:
+                    sample = pd.DataFrame([[N,P,K,temperature,humidity,ph,rainfall]],
+                                          columns=['N','P','K','temperature','humidity','ph','rainfall'])
+                    shap_values = np.array(models['shap_explainer'].shap_values(sample))
+                    top_idx     = list(models['crop_encoder'].classes_).index(top_crop)
+                    shap_vals   = shap_values[0,:,top_idx]
+                    feat_names  = ['Nitrogen','Phosphorus','Potassium','Temperature','Humidity','pH','Rainfall']
+                    shap_pairs  = sorted(zip(feat_names, shap_vals), key=lambda x: abs(x[1]), reverse=True)
+
+                    cs1, cs2 = st.columns([3,2])
+                    with cs1:
+                        colors = ['#1b5e20' if v>0 else '#c62828' for _,v in shap_pairs]
+                        fig2 = go.Figure(go.Bar(
+                            x=[v for _,v in shap_pairs],
+                            y=[f for f,_ in shap_pairs],
+                            orientation='h',
+                            marker=dict(color=colors, line=dict(width=0)),
+                            text=[f"+{v:.4f}" if v>0 else f"{v:.4f}" for _,v in shap_pairs],
+                            textposition='outside',
+                        ))
+                        fig2.update_layout(
+                            title=dict(text=f"<b>Feature Impact for {top_crop.title()}</b>", font=dict(size=14,color='#1b5e20')),
+                            height=320, margin=dict(t=50,b=20,l=10,r=60),
+                            paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(248,250,252,0.8)',
+                            xaxis=dict(showgrid=True,gridcolor='#e5e7eb',zeroline=True),
+                        )
+                        st.plotly_chart(fig2, use_container_width=True)
+                        top_feat, top_val = shap_pairs[0]
+                        direction = "strongly supports" if top_val > 0 else "works against"
+                        st.markdown(
+                            f'<div class="fert-tip">'
+                            f'🧠 <b>In plain English:</b> The most important factor is <b>{top_feat}</b>, '
+                            f'which {direction} growing <b>{top_crop.title()}</b> in your conditions. '
+                            f'Green bars = factors that helped. Red bars = factors that slightly reduced confidence.'
+                            f'</div>', unsafe_allow_html=True
+                        )
+                    with cs2:
+                        st.markdown('<div style="font-size:0.78rem;font-weight:700;color:#6b7280;letter-spacing:1px;text-transform:uppercase;margin-bottom:0.5rem">📊 Feature Breakdown</div>', unsafe_allow_html=True)
+                        for feat, val in shap_pairs:
+                            cls  = 'positive' if val>0 else 'negative'
+                            icon = '✅' if val>0 else '⚠️'
+                            direction = 'boosted' if val>0 else 'reduced'
+                            st.markdown(
+                                f'<div class="shap-explain-box {cls}">'
+                                f'{icon} <b>{feat}</b> {direction} confidence '
+                                f'<span style="float:right;font-weight:700">{"+" if val>0 else ""}{val:.4f}</span>'
+                                f'</div>', unsafe_allow_html=True
+                            )
+                except Exception:
+                    st.info("SHAP explanation not available.")
+
+                st.markdown('<hr class="fancy-divider">', unsafe_allow_html=True)
+
+                # YIELD GAP ANALYSIS (NEW FEATURE 5)
+                if pred > 0:
+                    show_yield_gap_analysis(top_crop, pred, low, high, N, P, K, ph, shap_pairs)
+                    st.markdown('<hr class="fancy-divider">', unsafe_allow_html=True)
+
+                # AI ADVICE
+                st.markdown('<div class="section-title">🤖 AI Farming Advice</div>', unsafe_allow_html=True)
+                if groq_key:
+                    with st.spinner("✨ Generating personalised advice..."):
+                        try:
+                            client = configure_groq(groq_key)
+                            advice = get_farming_advice(
+                                client=client, crop=top_crop.title(),
+                                fertilizer=fertilizer,
+                                yield_range=f"{low}—{high}" if low else "N/A",
+                                N=N, P=P, K=K, ph=ph,
+                                temperature=temperature, humidity=humidity,
+                                rainfall=rainfall, soil_type=soil_type, season=season
+                            )
+                            parsed, icons, display_names = parse_advice_sections(advice)
+                            if parsed:
+                                for i, (section, content) in enumerate(parsed.items()):
+                                    emoji = icons.get(section,'📋')
+                                    name  = display_names.get(section, section.title())
+                                    with st.expander(f"{emoji} {name}", expanded=(i==0)):
+                                        st.markdown(content)
+                            else:
+                                st.markdown(advice)
+                            st.info("ℹ️ These recommendations are based on verified agronomic data from ICAR and FAO guidelines integrated into AgroSense AI.")
+                        except Exception:
+                            st.warning("Could not generate AI advice. Check your API key.")
+                else:
+                    st.markdown('<div class="fert-tip">💡 Add GROQ_API_KEY to secrets.toml to unlock personalised AI farming advice.</div>', unsafe_allow_html=True)
+
+                st.markdown('<hr class="fancy-divider">', unsafe_allow_html=True)
+
+                # DOWNLOAD REPORT — fixed button color
+                st.markdown('<div class="section-title">📄 Download Full Report</div>', unsafe_allow_html=True)
+                report_lines = [
+                    "AgroSense AI — Farm Analysis Report",
+                    "=" * 45,
+                    f"Date        : {datetime.datetime.now().strftime('%d %b %Y %H:%M')}",
+                    f"Season      : {season}   |   Country: {country}",
+                    f"Input Quality Score: {quality_score}/100",
+                    "",
+                    "── SOIL DATA ──",
+                    f"Nitrogen (N): {N} kg/ha   Phosphorus (P): {P} kg/ha",
+                    f"Potassium(K): {K} kg/ha   pH: {ph}   Soil Type: {soil_type}",
+                    "",
+                    "── CLIMATE DATA ──",
+                    f"Temperature : {temperature}°C   Humidity: {humidity}%   Rainfall: {rainfall} mm",
+                    "",
+                    "── AI RECOMMENDATIONS ──",
+                    f"Top Crop    : {top_crop.title()}",
+                    f"Fertilizer  : {fertilizer}",
+                    f"Yield Range : {low} — {high} t/ha",
+                    f"Soil Grade  : {soil_grade}  ({ok_count}/4 nutrients optimal)",
+                    "",
+                    "── TOP 5 CROPS ──",
+                ]
+                for i,(c,cf) in enumerate(top5):
+                    report_lines.append(f"  {i+1}. {c.title():20s} {cf:.1f}% confidence")
+                report_lines += ["","=" * 45,"Powered by AgroSense AI"]
+                report_text = "\n".join(report_lines)
+
+                st.download_button(
+                    label="📥 Download Full Report (.txt)",
+                    data=report_text,
+                    file_name=f"AgroSense_Report_{top_crop.title()}_{datetime.datetime.now().strftime('%Y%m%d')}.txt",
+                    mime="text/plain"
+                )
+
+                # Save context
+                st.session_state["farm_analysis"] = {
+                    "crop": top_crop.title(), "soil_type": soil_type,
+                    "fertilizer": fertilizer,
+                    "yield_low": low, "yield_high": high,
+                    "N":N,"P":P,"K":K,"ph":ph,
+                    "temperature":temperature,"humidity":humidity,"rainfall":rainfall,
+                    "season":season,"country":country,
+                }
+                st.session_state['last_prediction'] = {
+                    'timestamp': datetime.datetime.now().strftime("%d %b %Y, %I:%M %p"),
+                    'city':    st.session_state.get('wx_city','Unknown'),
+                    'state':   st.session_state.get('wx_state',''),
+                    'country': st.session_state.get('wx_country','Unknown'),
+                    'season':  season, 'N':N,'P':P,'K':K,'ph':ph,
+                    'soil_type':soil_type,'temperature':temperature,
+                    'humidity':humidity,'rainfall':rainfall,
+                    'top_crop':top_crop,
+                    'top5':[(str(c),round(float(cf),2)) for c,cf in top5],
+                    'fertilizer':fertilizer,
+                    'yield_low':float(low),'yield_high':float(high),
+                }
+                st.markdown('</div>', unsafe_allow_html=True)
+
+    # ─────────────────────────────────────────────
+    # PAGE 2 — CHATBOT
+    # ─────────────────────────────────────────────
+
+    elif page == "🤖 AI Farming Chatbot":
+
+        st.markdown(
+            '<div style="background:linear-gradient(135deg,#1b5e20,#2e7d32);border-radius:18px;'
+            'padding:1.4rem 2rem;margin-bottom:1.2rem;box-shadow:0 6px 24px rgba(27,94,32,0.3)">'
+            '<div style="font-size:1.7rem;font-weight:800;color:#ffd700">🤖 AgroSense Farming Assistant</div>'
+            '<div style="font-size:0.88rem;color:#a5d6a7;margin-top:0.3rem">'
+            'Ask any farming question — crops, fertilizers, diseases, government schemes and more</div>'
+            '</div>',
+            unsafe_allow_html=True
+        )
+
+        if not groq_key:
+            st.warning("⚠️ Groq API key not configured. Please add GROQ_API_KEY to your secrets.toml.")
+            st.stop()
+
+        with st.spinner("⚙️ Loading knowledge base..."):
+            from rag_chatbot import initialize_rag, answer_question
+            knowledge_store, embedder, groq_client = initialize_rag(groq_key)
+
+        if 'chat_history' not in st.session_state:
+            st.session_state.chat_history = []
+        if 'quick_q' not in st.session_state:
+            st.session_state.quick_q = None
+
+        farm_ctx = ""
+        fa = st.session_state.get("farm_analysis")
+        if fa:
+            farm_ctx = (
+                f"Farmer's analysis: Recommended crop: {fa['crop']}. "
+                f"Soil: N={fa['N']}, P={fa['P']}, K={fa['K']}, pH={fa['ph']}, type={fa['soil_type']}. "
+                f"Climate: {fa['temperature']}°C, {fa['humidity']}%, {fa['rainfall']}mm. "
+                f"Fertilizer: {fa['fertilizer']}. Yield: {fa['yield_low']}-{fa['yield_high']} t/ha. "
+                f"Season: {fa['season']}, Country: {fa['country']}."
+            )
+            st.markdown(
+                f'<div style="background:linear-gradient(135deg,#e8f5e9,#d0f0d8);border:2px solid #4caf50;'
+                f'border-radius:14px;padding:0.85rem 1.2rem;margin-bottom:1rem">'
+                f'🌾 <b>Context loaded:</b> Your farm analysis shows <b>{fa["crop"]}</b> is recommended '
+                f'for your <b>{fa["soil_type"]}</b> soil in <b>{fa["season"]}</b> season'
+                f'</div>',
+                unsafe_allow_html=True
+            )
+
+        # Quick questions
+        QUICK_QUESTIONS = [
+            ("🌱","Best crop for my soil?"), ("📈","How to increase yield?"),
+            ("🧪","What fertilizer should I use?"), ("🐛","Disease prevention tips"),
+            ("🏛️","Government farming schemes"),
+        ]
+        st.markdown('<div style="font-size:0.8rem;font-weight:700;color:#6b7280;letter-spacing:1px;text-transform:uppercase;margin-bottom:0.5rem">⚡ Quick Questions</div>', unsafe_allow_html=True)
+        qq_cols = st.columns(len(QUICK_QUESTIONS))
+        for i,(icon,q_text) in enumerate(QUICK_QUESTIONS):
+            with qq_cols[i]:
+                if st.button(f"{icon} {q_text}", key=f"qq_{i}", use_container_width=True):
+                    st.session_state.quick_q = q_text
+
+        st.markdown('<hr class="fancy-divider" style="margin:0.8rem 0">', unsafe_allow_html=True)
+
+        # Chat history
+        chat_html = '<div class="chat-container">'
+        if not st.session_state.chat_history:
+            chat_html += (
+                '<div class="chat-row bot-row">'
+                '<div class="chat-avatar avatar-bot">🤖</div>'
+                '<div><div class="chat-bubble bubble-bot">'
+                '👋 <b>Hello! I\'m your AgroSense Farming Assistant.</b><br><br>'
+                'I can help with crop selection, fertilizers, irrigation, pest control, '
+                'government schemes and more. Use the Quick Questions above or type below!'
+                '</div></div></div>'
+            )
+        for msg in st.session_state.chat_history:
+            role, content, ts = msg['role'], msg['content'], msg.get('ts','')
+            if role == 'user':
+                chat_html += f'<div class="chat-row user-row"><div class="chat-avatar avatar-user">👨‍🌾</div><div><div class="chat-bubble bubble-user">{content}</div><div class="chat-ts">{ts}</div></div></div>'
+            else:
+                formatted = content.replace('\n','<br>')
+                chat_html += f'<div class="chat-row bot-row"><div class="chat-avatar avatar-bot">🤖</div><div><div class="chat-bubble bubble-bot">{formatted}</div><div class="chat-ts">{ts}</div></div></div>'
+        chat_html += '</div>'
+        st.markdown(chat_html, unsafe_allow_html=True)
+
+        question = st.chat_input("💬 Ask any farming question...")
+        if st.session_state.quick_q:
+            question = st.session_state.quick_q
+            st.session_state.quick_q = None
+
+        if question:
+            now_ts = datetime.datetime.now().strftime("%I:%M %p")
+            st.session_state.chat_history.append({'role':'user','content':question,'ts':now_ts})
+            typing_placeholder = st.empty()
+            typing_placeholder.markdown(
+                '<div class="chat-row bot-row"><div class="chat-avatar avatar-bot">🤖</div>'
+                '<div class="typing-bubble"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div>',
+                unsafe_allow_html=True
+            )
+            result = answer_question(question, knowledge_store, embedder, groq_client, farm_context=farm_ctx)
+            typing_placeholder.empty()
+            ans_ts = datetime.datetime.now().strftime("%I:%M %p")
+            st.session_state.chat_history.append({'role':'assistant','content':result['answer'],'ts':ans_ts})
+            with st.expander("📚 Knowledge sources used", expanded=False):
+                for i,chunk in enumerate(result['sources'],1):
+                    st.caption(f"Source {i}: {chunk[:160]}...")
+            st.rerun()
+
+        if st.button("🗑️ Clear Chat History", key="clear_chat"):
+            st.session_state.chat_history = []
+            st.rerun()
+
+    # ─────────────────────────────────────────────
+    # PAGE 3 — MY FARM REPORT
+    # ─────────────────────────────────────────────
+
+    elif page == "📋 My Farm Report":
+
+        if "last_prediction" not in st.session_state:
+            st.info("🌾 No farm analysis found.\n\nPlease go to 🏠 Home & Prediction and click **Analyse My Farm** first.")
+            st.stop()
+
+        pred = st.session_state['last_prediction']
+
+        if pred.get('city','Unknown') == 'Unknown':
+            st.warning("📍 Location not detected. Please use the weather fetch on the Home page to set your location first.")
+
+        st.markdown(
+            '<div style="background:linear-gradient(135deg,#1b5e20,#2e7d32);border-radius:18px;'
+            'padding:1.4rem 2rem;margin-bottom:1.2rem;box-shadow:0 6px 24px rgba(27,94,32,0.3)">'
+            '<div style="font-size:1.7rem;font-weight:800;color:#ffd700">📋 My Farm Report</div>'
+            '<div style="font-size:0.88rem;color:#a5d6a7;margin-top:0.3rem">Summary of your last AI farm analysis</div>'
+            '</div>',
+            unsafe_allow_html=True
+        )
+
+        city, state, country = pred.get('city',''), pred.get('state',''), pred.get('country','')
+        location = f"{city}, {state}, {country}" if (state and state != city) else f"{city}, {country}"
+
+        st.markdown(f"**Generated:** {pred['timestamp']}  |  **Location:** {location}  |  **Season:** {pred['season']}")
+        st.markdown('<hr class="fancy-divider">', unsafe_allow_html=True)
+
+        r1, r2 = st.columns(2)
+        with r1:
+            st.markdown("#### 🌱 Soil Profile")
+            st.table(pd.DataFrame({
+                "Parameter": ["Nitrogen (N)","Phosphorus (P)","Potassium (K)","pH","Soil Type"],
+                "Value":     [f"{pred['N']} kg/ha",f"{pred['P']} kg/ha",f"{pred['K']} kg/ha",pred['ph'],pred['soil_type']]
+            }))
+            st.markdown("#### 🏆 AI Recommendations")
+            st.success(f"**Best Crop:** {pred['top_crop'].title()}")
+            st.info(f"**Fertilizer:** {pred['fertilizer']}")
+            st.info(f"**Expected Yield:** {pred['yield_low']} — {pred['yield_high']} tonnes/hectare")
+
+        with r2:
+            st.markdown("#### 🌤️ Climate Data")
+            st.table(pd.DataFrame({
+                "Parameter": ["Temperature","Humidity","Annual Rainfall"],
+                "Value":     [f"{pred['temperature']}°C",f"{pred['humidity']}%",f"{pred['rainfall']}mm"],
+                "Source":    ["OpenWeatherMap","OpenWeatherMap","Open-Meteo (30-day)"]
+            }))
+            st.markdown("#### 🌾 Top 5 Crop Rankings")
+            for i,(crop,conf) in enumerate(pred["top5"]):
+                st.write(f"{'🥇🥈🥉4️⃣5️⃣'[i*2:i*2+2]} {crop.title()} — {conf}%")
+                st.progress(int(min(conf,100)))
+
+        st.markdown('<hr class="fancy-divider">', unsafe_allow_html=True)
+        st.warning("⚠️ This report is generated by AgroSense AI using verified ICAR and FAO agronomic data. Monitor your crop and adjust based on actual field conditions.")
+
+        report_text = "\n".join([
+            "AGROSENSE AI — FARM ANALYSIS REPORT","="*40,
+            f"Generated: {pred['timestamp']}",f"Location: {location}",f"Season: {pred['season']}","",
+            "SOIL PROFILE:",f"  N:{pred['N']} P:{pred['P']} K:{pred['K']} pH:{pred['ph']} Type:{pred['soil_type']}","",
+            "CLIMATE:",f"  Temp:{pred['temperature']}°C Humidity:{pred['humidity']}% Rain:{pred['rainfall']}mm","",
+            "RECOMMENDATIONS:",f"  Crop:{pred['top_crop'].title()} Fertilizer:{pred['fertilizer']}",
+            f"  Yield:{pred['yield_low']}-{pred['yield_high']} t/ha","",
+            "TOP 5 CROPS:",
+            *[f"  {i+1}. {c.title()} — {cf}%" for i,(c,cf) in enumerate(pred['top5'])],
+            "","DISCLAIMER: Consult local agricultural officer for field-specific advice."
+        ])
+
+        st.download_button(
+            label="📥 Download My Farm Report",
+            data=report_text,
+            file_name=f"AgroSense_{city.replace(' ','_')}_{pred['season']}.txt",
+            mime="text/plain"
+        )
+
+        wa_text = (
+            f"🌾 My AgroSense AI Farm Report\n📍 {location}\n"
+            f"🏆 Best Crop: {pred['top_crop'].title()}\n💊 Fertilizer: {pred['fertilizer']}\n"
+            f"📊 Yield: {pred['yield_low']}-{pred['yield_high']} t/ha\n📅 Season: {pred['season']}\nGenerated by AgroSense AI"
+        )
+        st.markdown(
+            f'<a href="https://wa.me/?text={urllib.parse.quote(wa_text)}" target="_blank" '
+            f'style="display:inline-block;background:#25D366;color:white;padding:10px 24px;'
+            f'border-radius:8px;text-decoration:none;font-weight:bold;margin-top:10px">'
+            f'📱 Share on WhatsApp</a>',
+            unsafe_allow_html=True
+        )
+
+
+if __name__ == "__main__":
+    main()

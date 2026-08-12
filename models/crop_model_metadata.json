@@ -1,0 +1,20 @@
+{
+    "best_model": "Random Forest",
+    "accuracy": 99.55,
+    "all_results": {
+        "Random Forest": 99.55,
+        "XGBoost": 99.09,
+        "Gradient Boosting": 98.86,
+        "Logistic Regression": 94.55
+    },
+    "features": [
+        "N",
+        "P",
+        "K",
+        "temperature",
+        "humidity",
+        "ph",
+        "rainfall"
+    ],
+    "total_classes": 22
+}
