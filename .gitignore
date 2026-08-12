@@ -1,0 +1,6 @@
+.streamlit/secrets.toml
+__pycache__/
+*.pyc
+utils/__pycache__/
+app_text.txt
+fix.py
