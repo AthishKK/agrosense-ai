@@ -515,7 +515,7 @@ Use simple language. Be specific with product names and quantities where relevan
 
     # Step 4: Get answer from Groq
     response = groq_client.chat.completions.create(
-        model='llama-3.3-70b-versatile',
+        model='qwen/qwen3.6-27b',
         messages=[
             {
                 'role': 'system',

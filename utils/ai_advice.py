@@ -3,7 +3,7 @@ sys.stdout.reconfigure(encoding='utf-8')
 # ================================================
 # AgroSense AI — AI Farming Advice
 # Uses Groq API (Free, No Daily Limit)
-# Model: llama-3.3-70b-versatile
+# Model: qwen/qwen3.6-27b
 # ================================================
 
 from groq import Groq
@@ -125,7 +125,7 @@ Section-specific guidance:
 """
 
     response = client.chat.completions.create(
-        model='llama-3.3-70b-versatile',
+        model='qwen/qwen3.6-27b',
         messages=[
             {
                 'role': 'system',
@@ -187,7 +187,7 @@ Format as numbered points 1-4 with bullet points under each.
 """
 
     response = client.chat.completions.create(
-        model='llama-3.3-70b-versatile',
+        model='qwen/qwen3.6-27b',
         messages=[
             {
                 'role': 'system',
@@ -249,7 +249,7 @@ Format as numbered points 1-4 with bullet points under each.
 """
 
     response = client.chat.completions.create(
-        model='llama-3.3-70b-versatile',
+        model='qwen/qwen3.6-27b',
         messages=[
             {
                 'role': 'system',
