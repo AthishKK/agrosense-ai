@@ -1,0 +1,173 @@
+$raw = [System.IO.File]::ReadAllText('app.py', [System.Text.UTF8Encoding]::new($false))
+
+$oldFn = @'
+def parse_advice_sections(advice_text):
+
+
+
+    section_map = {
+        "SEED SELECTION":      "\U0001F33E",
+        "SEED":                "\U0001F33E",
+        "FERTILIZER SCHEDULE": "\U0001F48A",
+        "FERTILIZER":          "\U0001F48A",
+
+        "IRRIGATION PLAN":     "\U0001F4A7",
+        "IRRIGATION":          "\U0001F4A7",
+        "DISEASE & PEST":      "\U0001F9A0",
+        "DISEASE AND PEST":    "\U0001F9A0",
+
+        "DISEASE":             "\U0001F9A0",
+
+        "PEST":                "\U0001F9A0",
+        "EXPECTED CHALLENGES": "\u26A0\uFE0F",
+
+        "CHALLENGES":          "\u26A0\uFE0F",
+        "HARVEST GUIDANCE":    "\U0001F33F",
+        "HARVEST":             "\U0001F33F",
+
+    }
+
+
+    display_names = {
+
+        "SEED SELECTION":      "Seed Selection",
+
+        "SEED":                "Seed Selection",
+        "FERTILIZER SCHEDULE": "Fertilizer Schedule",
+        "FERTILIZER":          "Fertilizer Schedule",
+        "IRRIGATION PLAN":     "Irrigation Plan",
+        "IRRIGATION":          "Irrigation Plan",
+
+        "DISEASE & PEST":      "Disease & Pest Prevention",
+        "DISEASE AND PEST":    "Disease & Pest Prevention",
+        "DISEASE":             "Disease & Pest Prevention",
+
+        "PEST":                "Disease & Pest Prevention",
+
+        "EXPECTED CHALLENGES": "Expected Challenges",
+
+        "CHALLENGES":          "Expected Challenges",
+        "HARVEST GUIDANCE":    "Harvest Guidance",
+        "HARVEST":             "Harvest Guidance",
+
+    }
+
+
+    result = {}
+    current_section = None
+    current_lines = []
+
+
+    for line in advice_text.split('\n'):
+
+
+        line_upper = line.strip().upper()
+        line_upper = line_upper.replace("#","").replace("*","").replace("-","").replace("\U0001F33E","").replace("\U0001F48A","").replace("\U0001F4A7","").replace("\U0001F9A0","").replace("\u26A0\uFE0F","").replace("\U0001F33F","").strip()
+
+        matched = False
+        matched_key = None
+
+
+        for section in section_map:
+            if section in line_upper and len(line_upper) < 50:
+                matched_key = section
+
+                matched = True
+
+                break
+
+        if matched:
+            if current_section and current_lines:
+                result[current_section] = '\n'.join(current_lines).strip()
+            current_section = matched_key
+            current_lines = []
+
+        elif current_section:
+            current_lines.append(line)
+
+    if current_section and current_lines:
+        result[current_section] = '\n'.join(current_lines).strip()
+
+    result = {k: v for k, v in result.items() if v.strip()}
+
+    return result, section_map, display_names
+'@
+
+$newFn = @'
+def parse_advice_sections(advice_text):
+
+    section_map = {
+        "SEED SELECTION":      "🌾",
+        "SEED":                "🌾",
+        "FERTILIZER SCHEDULE": "💊",
+        "FERTILIZER":          "💊",
+        "IRRIGATION PLAN":     "💧",
+        "IRRIGATION":          "💧",
+        "DISEASE & PEST":      "🦠",
+        "DISEASE AND PEST":    "🦠",
+        "DISEASE":             "🦠",
+        "PEST":                "🦠",
+        "EXPECTED CHALLENGES": "⚠️",
+        "CHALLENGES":          "⚠️",
+        "HARVEST GUIDANCE":    "🌿",
+        "HARVEST":             "🌿",
+    }
+
+    display_names = {
+        "SEED SELECTION":      "Seed Selection",
+        "SEED":                "Seed Selection",
+        "FERTILIZER SCHEDULE": "Fertilizer Schedule",
+        "FERTILIZER":          "Fertilizer Schedule",
+        "IRRIGATION PLAN":     "Irrigation Plan",
+        "IRRIGATION":          "Irrigation Plan",
+        "DISEASE & PEST":      "Disease & Pest Prevention",
+        "DISEASE AND PEST":    "Disease & Pest Prevention",
+        "DISEASE":             "Disease & Pest Prevention",
+        "PEST":                "Disease & Pest Prevention",
+        "EXPECTED CHALLENGES": "Expected Challenges",
+        "CHALLENGES":          "Expected Challenges",
+        "HARVEST GUIDANCE":    "Harvest Guidance",
+        "HARVEST":             "Harvest Guidance",
+    }
+
+    result = {}
+    current_section = None
+    current_lines = []
+
+    for line in advice_text.split('\n'):
+        line_upper = line.strip().upper()
+        line_upper = line_upper.replace('#','').replace('*','').replace('-','').replace('🌾','').replace('💊','').replace('💧','').replace('🦠','').replace('⚠️','').replace('🌿','').strip()
+
+        matched = False
+        matched_key = None
+
+        for section in section_map:
+            if section in line_upper and len(line_upper) < 50:
+                matched_key = section
+                matched = True
+                break
+
+        if matched:
+            if current_section and current_lines:
+                result[current_section] = '\n'.join(current_lines).strip()
+            current_section = matched_key
+            current_lines = []
+        elif current_section:
+            current_lines.append(line)
+
+    if current_section and current_lines:
+        result[current_section] = '\n'.join(current_lines).strip()
+
+    result = {k: v for k, v in result.items() if v.strip()}
+
+    return result, section_map, display_names
+'@
+
+$newraw = $raw.Replace($oldFn, $newFn)
+
+if ($newraw -eq $raw) {
+    Write-Host "NO MATCH — old block not found"
+} else {
+    [System.IO.File]::WriteAllText('app.py', $newraw, [System.Text.UTF8Encoding]::new($false))
+    Write-Host "Done"
+}

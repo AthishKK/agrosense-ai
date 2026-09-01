@@ -283,8 +283,17 @@ input[type="number"]:focus {
 [data-testid="stMetricValue"] { color:#1b5e20 !important;font-weight:800 !important; }
 ::-webkit-scrollbar { width:6px; }
 ::-webkit-scrollbar-thumb { background:#2e7d32;border-radius:3px; }
-.stMarkdown,.stText,label,p,span { color:#1f2937; }
+.stMarkdown,.stText,label,p,span { color:#1f2937; font-size:1rem; }
+[data-testid="stExpander"] p { font-size:1rem !important; color:#1f2937 !important; }
+[data-testid="stExpander"] li { font-size:1rem !important; color:#1f2937 !important; }
 .stSelectbox > div > div,.stTextInput > div > div > input { background:#ffffff !important;color:#1f2937 !important; }
+/* Fix white text in input fields */
+div[data-baseweb="select"] input { color:#1f2937 !important; }
+div[data-baseweb="select"] > div > div { color:#1f2937 !important; }
+div[data-baseweb="input"] input { color:#1f2937 !important; }
+.stTextInput input { color:#1f2937 !important; }
+div[data-testid="stSelectbox"] input { color:#1f2937 !important; }
+div[data-baseweb="select"] [data-testid="stSelectbox"] span { color:#1f2937 !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -419,71 +428,58 @@ def get_soil_scorecard(N, P, K, ph):
 
 def parse_advice_sections(advice_text):
     section_map = {
-        "SEED SELECTION":      "🌾",
-        "SEED":                "🌾",
+        "SEED SELECTION": "🌾",
         "FERTILIZER SCHEDULE": "💊",
-        "FERTILIZER":          "💊",
-        "IRRIGATION PLAN":     "💧",
-        "IRRIGATION":          "💧",
-        "DISEASE & PEST":      "🦠",
-        "DISEASE AND PEST":    "🦠",
-        "DISEASE":             "🦠",
-        "PEST PREVENTION":     "🦠",
-        "PEST":                "🦠",
+        "IRRIGATION PLAN": "💧",
+        "DISEASE & PEST PREVENTION": "🦠",
+        "DISEASE AND PEST PREVENTION": "🦠",
+        "DISEASE & PEST": "🦠",
+        "DISEASE AND PEST": "🦠",
         "EXPECTED CHALLENGES": "⚠️",
-        "CHALLENGES":          "⚠️",
-        "HARVEST GUIDANCE":    "🌿",
-        "HARVEST":             "🌿",
+        "HARVEST GUIDANCE": "🌿",
     }
     display_names = {
-        "SEED SELECTION":      "Seed Selection",
-        "SEED":                "Seed Selection",
+        "SEED SELECTION": "Seed Selection",
         "FERTILIZER SCHEDULE": "Fertilizer Schedule",
-        "FERTILIZER":          "Fertilizer Schedule",
-        "IRRIGATION PLAN":     "Irrigation Plan",
-        "IRRIGATION":          "Irrigation Plan",
-        "DISEASE & PEST":      "Disease & Pest Prevention",
-        "DISEASE AND PEST":    "Disease & Pest Prevention",
-        "DISEASE":             "Disease & Pest Prevention",
-        "PEST PREVENTION":     "Disease & Pest Prevention",
-        "PEST":                "Disease & Pest Prevention",
+        "IRRIGATION PLAN": "Irrigation Plan",
+        "DISEASE & PEST PREVENTION": "Disease & Pest Prevention",
+        "DISEASE AND PEST PREVENTION": "Disease & Pest Prevention",
+        "DISEASE & PEST": "Disease & Pest Prevention",
+        "DISEASE AND PEST": "Disease & Pest Prevention",
         "EXPECTED CHALLENGES": "Expected Challenges",
-        "CHALLENGES":          "Expected Challenges",
-        "HARVEST GUIDANCE":    "Harvest Guidance",
-        "HARVEST":             "Harvest Guidance",
+        "HARVEST GUIDANCE": "Harvest Guidance",
     }
-
     result = {}
     current_section = None
     current_lines = []
-
-    for line in advice_text.split('\n'):
-        line_clean = line.strip().upper()
-        line_clean = line_clean.replace('#','').replace('*','').replace('-','').strip()
-
+    seen_sections = set()
+    for line in advice_text.splitlines():
+        clean_upper = line.strip().upper()
+        for ch in ['##','#','**','*','-','_',
+                   '🌾','💊','💧','🦠','⚠️','🌿']:
+            clean_upper = clean_upper.replace(ch, '')
+        clean_upper = clean_upper.strip()
         matched = False
         matched_key = None
-
-        for section in section_map:
-            if section in line_clean and len(line_clean) < 60:
-                matched_key = section
-                matched = True
-                break
-
+        if 3 < len(clean_upper) < 50:
+            for section in section_map:
+                if section in clean_upper and section not in seen_sections:
+                    matched_key = section
+                    matched = True
+                    break
         if matched:
             if current_section and current_lines:
-                result[current_section] = '\n'.join(current_lines).strip()
+                result[current_section] = chr(10).join(
+                    current_lines).strip()
             current_section = matched_key
+            seen_sections.add(matched_key)
             current_lines = []
         elif current_section:
             current_lines.append(line)
-
     if current_section and current_lines:
-        result[current_section] = '\n'.join(current_lines).strip()
-
-    # Remove empty sections
+        result[current_section] = chr(10).join(
+            current_lines).strip()
     result = {k: v for k, v in result.items() if v.strip()}
-
     return result, section_map, display_names
 
 # ─────────────────────────────────────────────────
@@ -1253,9 +1249,10 @@ def main():
                                         st.markdown(content)
                             else:
                                 st.markdown(advice)
-                            st.info("ℹ️ These recommendations are based on verified agronomic data from ICAR and FAO guidelines.")
-                        except:
-                            st.warning("Could not generate AI advice. Check your API key.")
+                        except Exception as e:
+                            st.warning(f"Could not generate AI advice. Error: {str(e)}")
+                            import traceback
+                            st.code(traceback.format_exc())
                 else:
                     st.markdown('<div class="fert-tip">💡 Add GROQ_API_KEY to secrets.toml to unlock AI farming advice.</div>', unsafe_allow_html=True)
 
@@ -1450,8 +1447,9 @@ def main():
                 "Source":["OpenWeatherMap","OpenWeatherMap","Open-Meteo (30-day)"]
             }))
             st.markdown("#### 🌾 Top 5 Crop Rankings")
+            rank_labels = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣']
             for i,(crop,conf) in enumerate(pred["top5"]):
-                st.write(f"{'🥇🥈🥉4️⃣5️⃣'[i*2:i*2+2]} {crop.title()} — {conf}%")
+                st.write(f"{rank_labels[i]} {crop.title()} — {conf}%")
                 st.progress(int(min(conf,100)))
 
         st.markdown('<hr class="fancy-divider">', unsafe_allow_html=True)

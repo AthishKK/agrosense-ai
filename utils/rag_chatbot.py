@@ -515,7 +515,7 @@ Use simple language. Be specific with product names and quantities where relevan
 
     # Step 4: Get answer from Groq
     response = groq_client.chat.completions.create(
-        model='qwen/qwen3.6-27b',
+        model='openai/gpt-oss-20b',
         messages=[
             {
                 'role': 'system',
