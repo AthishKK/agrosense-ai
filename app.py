@@ -416,9 +416,9 @@ def fetch_weather_by_coords(lat, lon):
 
 def get_soil_scorecard(N, P, K, ph):
     sc = {}
-    sc['Nitrogen']   = ('Deficient','🔴','#ffebee') if N<280 else (('Sufficient','🟢','#e8f5e9') if N<=560 else ('Excess','🟠','#fff3e0'))
-    sc['Phosphorus'] = ('Deficient','🔴','#ffebee') if P<10  else (('Sufficient','🟢','#e8f5e9') if P<=25  else ('Excess','🟠','#fff3e0'))
-    sc['Potassium']  = ('Deficient','🔴','#ffebee') if K<110 else (('Sufficient','🟢','#e8f5e9') if K<=280 else ('Excess','🟠','#fff3e0'))
+    sc['Nitrogen']   = ('Deficient','🔴','#ffebee') if N < 40 else (('Sufficient','🟢','#e8f5e9') if N <= 140 else ('Excess','🟠','#fff3e0'))
+    sc['Phosphorus'] = ('Deficient','🔴','#ffebee') if P < 10  else (('Sufficient','🟢','#e8f5e9') if P <= 145  else ('Excess','🟠','#fff3e0'))
+    sc['Potassium']  = ('Deficient','🔴','#ffebee') if K < 50  else (('Sufficient','🟢','#e8f5e9') if K <= 205  else ('Excess','🟠','#fff3e0'))
     if   ph<5.5:  sc['pH']=('Strongly Acidic',   '🔴','#ffebee')
     elif ph<6.0:  sc['pH']=('Moderately Acidic',  '🟠','#fff3e0')
     elif ph<=7.5: sc['pH']=('Optimal',             '🟢','#e8f5e9')
@@ -507,20 +507,45 @@ YIELD_CROP_MAP = {
 
 def show_input_quality_validator(N, P, K, ph, temperature, humidity, rainfall):
     issues=[]; warnings=[]; scores=[]
-    checks = [
-        ('Nitrogen (N)',   N,           0, 140, 'kg/ha'),
-        ('Phosphorus (P)', P,           0, 145, 'kg/ha'),
-        ('Potassium (K)',  K,           0, 205, 'kg/ha'),
-        ('pH Level',       ph,          4.0, 9.5, ''),
-        ('Temperature',    temperature, 10,  45,  '°C'),
-        ('Humidity',       humidity,    20,  95,  '%'),
-        ('Rainfall',       rainfall,    0,   300, 'mm'),
+
+    if 40 <= N <= 140:
+        scores.append(100)
+    elif N < 40:
+        issues.append("⚠️ Nitrogen is low — crops may show pale leaves and slow growth")
+        scores.append(50)
+    elif N > 140:
+        issues.append(f"⚠️ Nitrogen (N) value ({N}kg/ha) is outside normal range (40-140kg/ha)")
+        scores.append(50)
+
+    if 10 <= P <= 145:
+        scores.append(100)
+    elif P < 10:
+        issues.append("⚠️ Phosphorus is low — may affect root development")
+        scores.append(50)
+    elif P > 145:
+        issues.append(f"⚠️ Phosphorus (P) value ({P}kg/ha) is outside normal range (10-145kg/ha)")
+        scores.append(50)
+
+    if 5 <= K <= 205:
+        scores.append(100)
+    elif K < 5:
+        issues.append("⚠️ Potassium is very low — may affect crop quality")
+        scores.append(50)
+    elif K > 205:
+        issues.append(f"⚠️ Potassium (K) value ({K}kg/ha) is outside normal range (50-205kg/ha)")
+        scores.append(50)
+
+    checks_rest = [
+        ('pH Level',    ph,          4.0, 9.5, ''),
+        ('Temperature', temperature, 10,  45,  '°C'),
+        ('Humidity',    humidity,    20,  95,  '%'),
+        ('Rainfall',    rainfall,    0,   300, 'mm'),
     ]
-    for name, val, mn, mx, unit in checks:
+    for name, val, mn, mx, unit in checks_rest:
         if mn <= val <= mx:
             scores.append(100)
         elif val < mn or val > mx:
-            if name in ['pH Level','Nitrogen (N)','Phosphorus (P)','Potassium (K)']:
+            if name == 'pH Level':
                 issues.append(f"⚠️ {name} value ({val}{unit}) is outside normal range ({mn}-{mx}{unit})")
                 scores.append(50)
             else:
@@ -528,6 +553,16 @@ def show_input_quality_validator(N, P, K, ph, temperature, humidity, rainfall):
                 scores.append(70)
         else:
             scores.append(0)
+
+    checks = [
+        ('Nitrogen (N)',   N,           0,   140, 'kg/ha'),
+        ('Phosphorus (P)', P,           0,   145, 'kg/ha'),
+        ('Potassium (K)',  K,           0,   205, 'kg/ha'),
+        ('pH Level',       ph,          4.0, 9.5, ''),
+        ('Temperature',    temperature, 10,  45,  '°C'),
+        ('Humidity',       humidity,    20,  95,  '%'),
+        ('Rainfall',       rainfall,    0,   300, 'mm'),
+    ]
 
     overall = int(sum(scores)/len(scores))
     grade = "HIGH ✅" if overall>=85 else ("MEDIUM ⚠️" if overall>=65 else "LOW ❌")
@@ -568,13 +603,20 @@ def show_input_quality_validator(N, P, K, ph, temperature, humidity, rainfall):
 
 def show_soil_improvement_advisor(N, P, K, ph, soil_type, top_crop):
     st.markdown('<div class="section-title">🌱 Soil Health Improvement Advisor</div>', unsafe_allow_html=True)
+    n_ok = 40 <= N <= 140
+    p_ok = 10 <= P <= 145
+    k_ok = 50 <= K <= 205
+    ph_ok = 6.0 <= ph <= 7.5
+    if n_ok and p_ok and k_ok and ph_ok:
+        st.success(f"✅ Your soil is in excellent condition for {top_crop.title()}! All N, P, K and pH values are within healthy ranges. Keep applying organic matter regularly to maintain this.")
+        return
     steps=[]; urg=0
-    if N<280:
+    if N<30:
         steps.append({'icon':'🟥','priority':'URGENT','title':'Correct Nitrogen Deficiency',
                       'action':'Apply 80-120 kg/ha Urea in split doses (40% at sowing, 30% at tillering, 30% at flowering)',
                       'timeline':'Immediate — before next sowing','expected':'N levels reach sufficient range within 1 season'})
         urg+=1
-    elif N>560:
+    elif N>120:
         steps.append({'icon':'🟠','priority':'REDUCE','title':'Reduce Excess Nitrogen',
                       'action':'Reduce nitrogen fertilizer by 40%. Plant a cereal crop to absorb excess N.',
                       'timeline':'Over next 2 seasons','expected':'N levels normalize in 1-2 crop cycles'})
@@ -587,12 +629,12 @@ def show_soil_improvement_advisor(N, P, K, ph, soil_type, top_crop):
         steps.append({'icon':'🟠','priority':'MONITOR','title':'Manage Excess Phosphorus',
                       'action':'Skip phosphorus fertilizer for 1-2 seasons. Excess P can block zinc absorption.',
                       'timeline':'Next 1-2 seasons','expected':'P levels reduce naturally with crop uptake'})
-    if K<110:
+    if K<20:
         steps.append({'icon':'🟥','priority':'URGENT','title':'Correct Potassium Deficiency',
                       'action':'Apply 80-100 kg/ha Muriate of Potash (MOP) at sowing time',
                       'timeline':'Immediate — before next sowing','expected':'K levels improve within 1 season'})
         urg+=1
-    elif K>280:
+    elif K>180:
         steps.append({'icon':'🟠','priority':'REDUCE','title':'Reduce Excess Potassium',
                       'action':'Stop potassium application for 1-2 seasons.',
                       'timeline':'Next 1-2 seasons','expected':'K normalizes as crop uptake reduces levels'})
@@ -613,6 +655,20 @@ def show_soil_improvement_advisor(N, P, K, ph, soil_type, top_crop):
     if urg==0: st.success("✅ Your soil is in good condition!")
     elif urg==1: st.warning(f"⚠️ 1 urgent correction needed before planting {top_crop.title()}.")
     else: st.error(f"❌ {urg} urgent corrections needed before planting.")
+
+    # Remove the always-added organic matter step if soil is already good
+    real_issues = [s for s in steps if s['priority'] != 'RECOMMENDED']
+
+    if len(real_issues) == 0:
+        st.success(
+            "✅ Your soil is in excellent condition! "
+            "All N, P, K and pH values are within "
+            "optimal ICAR ranges for growing "
+            f"{top_crop.title()}. "
+            "Continue maintaining these levels with "
+            "regular organic matter application."
+        )
+        return
 
     pc = {'URGENT':'#c62828','CRITICAL':'#c62828','REDUCE':'#f57c00','MONITOR':'#f57c00','RECOMMENDED':'#1b5e20'}
     for i,step in enumerate(steps,1):
