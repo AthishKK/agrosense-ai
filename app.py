@@ -50,6 +50,97 @@ sys.path.append(os.path.join(os.path.dirname(__file__), 'utils'))
 from ai_advice import configure_groq, get_farming_advice, get_soil_advice
 from rag_chatbot import initialize_rag, answer_question
 
+CROP_CLIMATE = {
+    'coffee':      {'max_temp': 28, 'min_humidity': 50, 'min_rain': 100},
+    'jute':        {'max_temp': 27, 'min_humidity': 71, 'min_rain': 140},
+    'rice':        {'min_humidity': 75, 'min_rain': 150},
+    'wheat':       {'max_temp': 27},
+    'coconut':     {'min_humidity': 65, 'min_rain': 80},
+    'banana':      {'min_humidity': 70, 'min_rain': 85},
+    'apple':       {'max_temp': 24, 'min_humidity': 60},
+    'grapes':      {'max_humidity': 65},
+    'lentil':      {'max_temp': 25},
+    'kidneybeans': {'max_temp': 24, 'min_humidity': 55},
+    'mungbean':    {'min_temp': 25},
+    'blackgram':   {'min_temp': 25},
+    'chickpea':    {'max_temp': 30, 'max_humidity': 65},
+    'mothbeans':   {'min_temp': 24, 'max_humidity': 75},
+    'papaya':      {'min_temp': 22},
+    'pomegranate': {'max_humidity': 65},
+    'watermelon':  {'min_temp': 25},
+    'muskmelon':   {'min_temp': 25},
+    'maize':       {'min_temp': 18, 'max_temp': 35},
+    'cotton':      {'min_temp': 25},
+    'sugarcane':   {'min_temp': 20, 'min_humidity': 65},
+}
+
+CROP_SOILS = {
+    'rice':        ['Clayey', 'Loamy'],
+    'wheat':       ['Loamy', 'Sandy'],
+    'cotton':      ['Black', 'Red', 'Loamy'],
+    'jute':        ['Loamy', 'Clayey'],
+    'sugarcane':   ['Loamy', 'Clayey', 'Black'],
+    'coconut':     ['Sandy', 'Loamy'],
+    'coffee':      ['Loamy', 'Red'],
+    'apple':       ['Loamy', 'Sandy'],
+    'banana':      ['Loamy', 'Red', 'Black'],
+    'grapes':      ['Sandy', 'Loamy', 'Red'],
+    'maize':       ['Loamy', 'Sandy', 'Red'],
+    'mango':       ['Loamy', 'Sandy', 'Red'],
+    'blackgram':   ['Loamy', 'Clayey', 'Black'],
+    'chickpea':    ['Loamy', 'Sandy', 'Black'],
+    'lentil':      ['Loamy', 'Sandy', 'Clayey'],
+    'pigeonpeas':  ['Loamy', 'Clayey', 'Black'],
+    'mungbean':    ['Loamy', 'Sandy'],
+    'mothbeans':   ['Sandy', 'Loamy'],
+    'kidneybeans': ['Loamy', 'Sandy'],
+    'watermelon':  ['Sandy', 'Loamy'],
+    'muskmelon':   ['Sandy', 'Loamy'],
+    'papaya':      ['Loamy', 'Sandy'],
+    'orange':      ['Sandy', 'Loamy'],
+    'pomegranate': ['Sandy', 'Loamy', 'Red'],
+}
+
+ROTATION_BY_SOIL = {
+    'Red':    {'legume': 'Blackgram',  'cereal': 'Maize',  'other': 'Chickpea'},
+    'Black':  {'legume': 'Pigeonpeas', 'cereal': 'Cotton', 'other': 'Sorghum'},
+    'Loamy':  {'legume': 'Chickpea',   'cereal': 'Wheat',  'other': 'Maize'},
+    'Sandy':  {'legume': 'Mothbeans',  'cereal': 'Maize',  'other': 'Mungbean'},
+    'Clayey': {'legume': 'Lentil',     'cereal': 'Rice',   'other': 'Jute'},
+}
+
+def filter_crops(top5_crops, soil_type, temperature, humidity, rainfall):
+    filtered = []
+    for crop, conf in top5_crops:
+        crop_lower = crop.lower().strip()
+        fail = False
+        if crop_lower in CROP_SOILS:
+            if soil_type not in CROP_SOILS[crop_lower]:
+                fail = True
+        if not fail and crop_lower in CROP_CLIMATE:
+            r = CROP_CLIMATE[crop_lower]
+            if 'max_temp' in r and temperature > r['max_temp']: fail = True
+            if 'min_temp' in r and temperature < r['min_temp']: fail = True
+            if 'min_humidity' in r and humidity < r['min_humidity']: fail = True
+            if 'max_humidity' in r and humidity > r['max_humidity']: fail = True
+            if 'min_rain' in r and rainfall < r['min_rain']: fail = True
+        if not fail:
+            filtered.append((crop, conf))
+    if not filtered:
+        return top5_crops[:2], (
+            f"No crops in our database perfectly match your "
+            f"{soil_type} soil, {temperature}C temperature, "
+            f"{humidity}% humidity and {rainfall}mm rainfall. "
+            "Showing closest model predictions. "
+            "Please consult your local KVK agricultural officer."
+        )
+    return filtered, None
+
+def month_to_season(month_name):
+    kharif = ['June','July','August','September','October']
+    rabi   = ['November','December','January','February','March']
+    return 'Kharif' if month_name in kharif else ('Rabi' if month_name in rabi else 'Zaid')
+
 # ─────────────────────────────────────────────────
 # PAGE CONFIG
 # ─────────────────────────────────────────────────
@@ -324,7 +415,8 @@ def load_models():
 
 def get_season():
     mo = datetime.datetime.now().month
-    return "Kharif" if mo in [6,7,8,9,10] else ("Rabi" if mo in [11,12,1,2,3] else "Zaid")
+    months = ["January","February","March","April","May","June","July","August","September","October","November","December"]
+    return months[mo-1]
 
 def get_top5_crops(model, encoder, N, P, K, temperature, humidity, ph, rainfall):
     s = pd.DataFrame([[N,P,K,temperature,humidity,ph,rainfall]],
@@ -684,7 +776,7 @@ def show_soil_improvement_advisor(N, P, K, ph, soil_type, top_crop):
                 f'</div></div>', unsafe_allow_html=True)
 
 
-def show_crop_rotation_engine(top_crop, season, N, P, K):
+def show_crop_rotation_engine(top_crop, season, N, P, K, soil_type="Loamy"):
     st.markdown('<div class="section-title">🔄 Crop Rotation Intelligence Engine</div>', unsafe_allow_html=True)
     crop_effects = {
         'rice':{'depletes':'N','effect':'Depletes N','type':'cereal'},
@@ -705,29 +797,33 @@ def show_crop_rotation_engine(top_crop, season, N, P, K):
         'muskmelon':{'depletes':'K','effect':'Depletes K','type':'fruit'},
     }
     ci  = crop_effects.get(top_crop.lower(),{'depletes':'N','effect':'Depletes nutrients','type':'cereal'})
+    season = month_to_season(season) if season not in ['Kharif','Rabi','Zaid'] else season
     seasons = ['Kharif','Rabi','Zaid']
+    season_display = {'Kharif':'Rainy Season','Rabi':'Winter Season','Zaid':'Summer Season'}
     semojis = {'Kharif':'☀️','Rabi':'❄️','Zaid':'🌸'}
     idx = seasons.index(season) if season in seasons else 0
+    soil_opts = ROTATION_BY_SOIL.get(soil_type, ROTATION_BY_SOIL['Loamy'])
     rotation = [
-        {'season':f"{season} (Now)",'crop':top_crop.title(),'emoji':'🌾',
+        {'season':f"{season_display[season]} (Now)",'crop':top_crop.title(),'emoji':'🌾',
          'effect':ci['effect'],'effect_type':'bad' if ci.get('depletes') else 'good',
          'reason':'AI recommended based on your soil'},
     ]
     s2 = seasons[(idx+1)%3]
     if 'N' in ci.get('depletes','') or ci['type']=='cereal':
-        rotation.append({'season':s2,'crop':'Chickpea' if s2=='Rabi' else 'Mungbean','emoji':'🫘',
-                         'effect':'Restores N naturally','effect_type':'good',
-                         'reason':f'Legume restores nitrogen depleted by {top_crop.title()}'})
+        rot2_crop = soil_opts['legume']
+        rot2_reason = f'Legume suits {soil_type} soil and restores nitrogen depleted by {top_crop.title()}'
     else:
-        rotation.append({'season':s2,'crop':'Wheat' if s2=='Rabi' else 'Maize','emoji':'🌾',
-                         'effect':'Breaks pest cycle','effect_type':'good',
-                         'reason':'Different crop family breaks pest and disease cycle'})
+        rot2_crop = soil_opts['cereal']
+        rot2_reason = f'Different crop family suited to {soil_type} soil breaks pest and disease cycle'
+    rotation.append({'season':season_display[s2],'crop':rot2_crop,'emoji':'🫘',
+                     'effect':'Restores N naturally' if 'N' in ci.get('depletes','') or ci['type']=='cereal' else 'Breaks pest cycle',
+                     'effect_type':'good','reason':rot2_reason})
     s3 = seasons[(idx+2)%3]
-    rotation.append({'season':s3,'crop':'Maize' if s3=='Kharif' else ('Mustard' if s3=='Rabi' else 'Watermelon'),
-                     'emoji':'🌽' if s3=='Kharif' else ('🌻' if s3=='Rabi' else '🍉'),
+    rot3_crop = soil_opts['other']
+    rotation.append({'season':season_display[s3],'crop':rot3_crop,'emoji':'🌱',
                      'effect':'Uses restored nutrients','effect_type':'good',
-                     'reason':'Benefits from improved soil after legume season'})
-    rotation.append({'season':f"{season} (Next Year)",'crop':top_crop.title(),'emoji':'🌾',
+                     'reason':f'Suited for {soil_type} soil after legume season'})
+    rotation.append({'season':f"{season_display[season]} (Next Year)",'crop':top_crop.title(),'emoji':'🌾',
                      'effect':'Higher yield expected','effect_type':'good',
                      'reason':'Soil restored — expect 15-25% higher yield'})
 
@@ -1053,10 +1149,13 @@ def main():
         def synced_input(label, key, mn, mx, default, step=1, fmt=None):
             if key not in st.session_state:
                 st.session_state[key] = default
-            val = st.slider(
-                label, mn, mx,
+            val = st.number_input(
+                label,
+                min_value=float(mn) if isinstance(step, float) else int(mn),
+                max_value=float(mx) if isinstance(step, float) else int(mx),
                 value=float(st.session_state[key]) if isinstance(step, float) else int(st.session_state[key]),
-                step=step)
+                step=float(step) if isinstance(step, float) else int(step),
+                format=fmt if fmt else ("%.1f" if isinstance(step, float) else "%d"))
             st.session_state[key] = val
             return val
 
@@ -1083,10 +1182,11 @@ def main():
         with col3:
             st.markdown('<div class="input-panel-header">🗺️ Farm Details</div>', unsafe_allow_html=True)
             soil_type = st.selectbox("Soil Type", ['Loamy','Sandy','Clayey','Black','Red'])
-            _seasons = ["Kharif","Rabi","Zaid"]
-            season   = st.selectbox("Season", _seasons,
-                                     index=_seasons.index(st.session_state.get("detected_season",auto_season)))
-            st.caption("📅 Auto-detected from current month. You can change this if needed.")
+            _months = ["January","February","March","April","May","June","July","August","September","October","November","December"]
+            selected_month = st.selectbox("Month", _months,
+                                     index=_months.index(auto_season) if auto_season in _months else 0)
+            st.caption("📅 Auto-detected from current month. You can change if needed.")
+            season = month_to_season(selected_month)
             _cl = sorted(models['country_encoder'].classes_)
             _wc = st.session_state.get("wx_country", "")
             country = st.selectbox("Country/Region", _cl,
@@ -1102,7 +1202,10 @@ def main():
                 st.markdown('<hr class="fancy-divider">', unsafe_allow_html=True)
 
                 top5     = get_top5_crops(models['crop_model'],models['crop_encoder'],N,P,K,temperature,humidity,ph,rainfall)
+                top5, filter_warning = filter_crops(top5, soil_type, temperature, humidity, rainfall)
                 top_crop = top5[0][0]
+                if filter_warning:
+                    st.warning(filter_warning)
 
                 st.markdown('<div class="results-wrapper">', unsafe_allow_html=True)
                 st.markdown(
@@ -1235,7 +1338,7 @@ def main():
                         st.info("Yield prediction not available for this crop/region.")
 
                 st.markdown('<hr class="fancy-divider">', unsafe_allow_html=True)
-                show_crop_rotation_engine(top_crop, season, N, P, K)
+                show_crop_rotation_engine(top_crop, season, N, P, K, soil_type)
                 st.markdown('<hr class="fancy-divider">', unsafe_allow_html=True)
                 show_crop_calendar(top_crop, season)
                 st.markdown('<hr class="fancy-divider">', unsafe_allow_html=True)
